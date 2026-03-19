@@ -14,7 +14,7 @@ import {
 } from "./ownership";
 import {
   startSession,
-  stopSession as stopBillingSession,
+  stopSession,
   startBillingEnforcement,
   stopBillingEnforcement,
 } from "./billing";

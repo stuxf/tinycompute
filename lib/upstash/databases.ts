@@ -34,6 +34,7 @@ export interface CreateDatabaseRequest {
 export class UpstashDatabasesClient {
   private email: string;
   private apiKey: string;
+  private cache = new Map<string, UpstashDatabase>();
 
   constructor(opts: { email: string; apiKey: string }) {
     this.email = opts.email;
@@ -45,13 +46,15 @@ export class UpstashDatabasesClient {
   }
 
   async create(request: CreateDatabaseRequest): Promise<UpstashDatabase> {
-    return this.req<UpstashDatabase>("POST", "/redis/database", {
+    const db = await this.req<UpstashDatabase>("POST", "/redis/database", {
       name: request.name,
       region: request.region ?? "global",
       primary_region: request.primary_region ?? "us-east-1",
       read_regions: request.read_regions ?? ["us-west-1"],
       tls: request.tls ?? true,
     });
+    this.cache.set(db.database_id, db);
+    return db;
   }
 
   async list(): Promise<UpstashDatabase[]> {
@@ -59,10 +62,15 @@ export class UpstashDatabasesClient {
   }
 
   async get(databaseId: string): Promise<UpstashDatabase> {
-    return this.req<UpstashDatabase>("GET", `/redis/database/${databaseId}`);
+    const cached = this.cache.get(databaseId);
+    if (cached) return cached;
+    const db = await this.req<UpstashDatabase>("GET", `/redis/database/${databaseId}`);
+    this.cache.set(databaseId, db);
+    return db;
   }
 
   async delete(databaseId: string): Promise<void> {
     await this.req<void>("DELETE", `/redis/database/${databaseId}`);
+    this.cache.delete(databaseId);
   }
 }

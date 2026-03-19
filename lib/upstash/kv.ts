@@ -16,22 +16,29 @@ export class UpstashKVClient {
   }
 
   private async command<T = unknown>(...args: (string | number)[]): Promise<T> {
-    const res = await fetch(this.url, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${this.token}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(args),
-    });
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 10_000);
+    try {
+      const res = await fetch(this.url, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${this.token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(args),
+        signal: controller.signal,
+      });
 
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`Upstash KV error ${res.status}: ${text}`);
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`Upstash KV error ${res.status}: ${text}`);
+      }
+
+      const data = await res.json() as { result: T };
+      return data.result;
+    } finally {
+      clearTimeout(timer);
     }
-
-    const data = await res.json() as { result: T };
-    return data.result;
   }
 
   async get(key: string): Promise<string | null> {

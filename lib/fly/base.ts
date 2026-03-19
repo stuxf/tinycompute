@@ -143,7 +143,6 @@ export async function flyRequestRaw<T>(
       if (res.status === 204) return undefined as T;
       return res.json() as Promise<T>;
     } catch (err) {
-      clearTimeout(timer);
 
       // Network errors and timeouts are retryable
       if (
