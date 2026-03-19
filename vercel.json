@@ -1,13 +1,3 @@
 {
-  "framework": null,
-  "buildCommand": "pnpm install && pnpm build && npx esbuild api/handler.ts --bundle --platform=node --format=esm --outdir=api --out-extension:.js=.js --allow-overwrite --packages=bundle",
-  "installCommand": "pnpm install",
-  "functions": {
-    "api/handler.ts": {
-      "includeFiles": "public/**"
-    }
-  },
-  "rewrites": [
-    { "source": "/(.*)", "destination": "/api/handler" }
-  ]
+  "framework": "nextjs"
 }
