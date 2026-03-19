@@ -79,12 +79,12 @@ Do NOT add `"handlers": ["tls"]` for raw TCP protocols like Minecraft, PostgreSQ
 
 Max per machine: 8 CPUs, 8GB RAM (shared), or 4GB (performance).
 
-## Auto-Destroy (TTL)
+## Auto-Stop (TTL)
 
-Add `"ttl_minutes": 60` to your create request to auto-destroy the machine after the specified time. Max 1440 minutes (24 hours). The machine self-terminates — no cron or client-side timer needed.
+Add `"ttl_minutes": 60` to your create request. The machine will be auto-stopped after the specified time (max 1440 min / 24 hours). TTL is stored as metadata — it does NOT override the Docker image's entrypoint. Works with any image.
 
 ```
-tempo request -t -X POST --json '{"name":"temp-server","ttl_minutes":10,"region":"sjc","config":{"image":"ubuntu:latest","guest":{"cpu_kind":"shared","cpus":1,"memory_mb":512}}}' https://tinycompute.dev/api/machines
+tempo request -t -X POST --json '{"name":"temp-server","ttl_minutes":10,"region":"sjc","config":{"image":"ubuntu:latest","init":{"cmd":["sleep","infinity"]},"guest":{"cpu_kind":"shared","cpus":1,"memory_mb":512}}}' https://tinycompute.dev/api/machines
 ```
 
 ## Providers

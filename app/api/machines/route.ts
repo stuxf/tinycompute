@@ -26,17 +26,14 @@ export const POST = mppx.charge({ amount: PRICES.MACHINE_SETUP, description: "Ma
     const v = validateCreateMachine(body);
     if (!v.ok) return validationErrorResponse(v.errors);
 
-    // Apply TTL
+    // Apply TTL via machine metadata — billing cron will auto-stop expired machines
     const ttlMinutes = body.ttl_minutes;
     if (ttlMinutes && typeof ttlMinutes === "number" && ttlMinutes > 0) {
-      const ttlSeconds = Math.min(ttlMinutes, 1440) * 60;
-      const originalCmd = body.config.init?.cmd ?? body.config.init?.exec ?? [];
-      body.config.init = {
-        ...body.config.init,
-        exec: ["timeout", String(ttlSeconds), ...(originalCmd.length > 0 ? originalCmd : ["sleep", "infinity"])],
+      const expiresAt = Date.now() + Math.min(ttlMinutes, 1440) * 60 * 1000;
+      body.config.metadata = {
+        ...body.config.metadata,
+        ttl_expires_at: String(expiresAt),
       };
-      body.config.auto_destroy = true;
-      body.config.restart = { policy: "no" };
     }
 
     const machine = await fly.machines.create(body);
