@@ -60,6 +60,7 @@ Create a `.env` file with:
 | `FLY_API_TOKEN` | Fly.io API deploy token |
 | `FLY_APP_NAME` | Name of your Fly app |
 | `DO_API_TOKEN` | DigitalOcean API token |
+| `DO_PROJECT_ID` | DigitalOcean project ID for droplet assignment (defaults to tinyCompute project) |
 | `MPP_RECIPIENT` | Your Tempo wallet address (receives payments) |
 | `PORT` | Server port (default: 3000) |
 

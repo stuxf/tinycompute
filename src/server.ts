@@ -19,6 +19,7 @@ import {
   validateExtendVolume,
   validateWaitState,
   validateExecCommand,
+  validateCreateDroplet,
 } from "./validation.js";
 import type { ValidationError } from "./validation.js";
 import {
@@ -99,6 +100,13 @@ const PRICES = {
 
 // --- Helpers ---
 
+/** Extract a required route param, asserting it exists */
+function param(c: Context, name: string): string {
+  const v = c.req.param(name);
+  if (!v) throw new FlyApiError(400, `Missing route parameter: ${name}`);
+  return v;
+}
+
 /** Extract payer wallet address from MPP credential in Authorization header */
 function getPayerWallet(c: Context): string | null {
   if (!c.req.header("authorization")) return null;
@@ -128,7 +136,7 @@ function requireOwnership(
   type: "machine" | "volume" | "droplet",
 ): { wallet: string; resourceId: string } {
   const wallet = requireWallet(c);
-  const resourceId = c.req.param(paramName);
+  const resourceId = param(c, paramName);
   assertOwnership(resourceId, wallet, type);
   return { wallet, resourceId };
 }
@@ -382,13 +390,13 @@ app.post("/api/apps", withErrorHandling(async (c: Context) => {
 app.delete("/api/apps/:name", withErrorHandling(async (c: Context) => {
   requireWallet(c);
   const force = c.req.query("force") === "true";
-  await fly.apps.delete(c.req.param("name"), force);
+  await fly.apps.delete(param(c, "name"), force);
   return c.json({ ok: true });
 }));
 
 // --- Apps: List IPs (free, no auth) ---
 app.get("/api/apps/:name/ips", withErrorHandling(async (c: Context) => {
-  return c.json(await fly.apps.listIps(c.req.param("name")));
+  return c.json(await fly.apps.listIps(param(c, "name")));
 }));
 
 // --- Apps: Allocate IP (charge) ---
@@ -396,7 +404,7 @@ app.post("/api/apps/:name/ips",
   mppx.charge({ amount: PRICES.ALLOCATE_IP, description: "Allocate IP address" }),
   withErrorHandling(async (c: Context) => {
     const body = await c.req.json().catch(() => ({}));
-    return c.json(await fly.apps.allocateIp(c.req.param("name"), body.type ?? "shared_v4", body.region), 201);
+    return c.json(await fly.apps.allocateIp(param(c, "name"), body.type ?? "shared_v4", body.region), 201);
   }),
 );
 
@@ -406,12 +414,25 @@ app.post("/api/apps/:name/ips",
 
 // --- Droplets: Create (charge) ---
 app.post("/api/do/droplets",
+  async (c: Context, next: Next) => {
+    const body = await c.req.json();
+    const v = validateCreateDroplet(body);
+    if (!v.ok) return validationErrorResponse(c, v.errors);
+    c.set("validatedBody", body);
+    await next();
+  },
   mppx.charge({ amount: PRICES.MACHINE_SETUP, description: "Droplet setup fee" }),
   withErrorHandling(async (c: Context) => {
-    const body = await c.req.json();
+    const body = c.get("validatedBody");
     const droplet = await doClient.droplets.create(body);
     const wallet = getPayerWallet(c);
     if (wallet) setDropletOwner(String(droplet.id), wallet);
+    // Assign to DO project (best-effort, don't fail the request)
+    try {
+      await doClient.projects.assignResources(DO_PROJECT_ID, [`do:droplet:${droplet.id}`]);
+    } catch (err) {
+      console.error(`[do] Failed to assign droplet ${droplet.id} to project:`, err instanceof Error ? err.message : err);
+    }
     return c.json(droplet, 201);
   }),
 );

@@ -13,6 +13,22 @@ const ALLOWED_REGIONS = [
   "scl", "sea", "sin", "sjc", "syd", "waw", "yul", "yyz",
 ];
 
+// DigitalOcean allowed sizes — restrict to small/cheap slugs only
+const ALLOWED_DO_SIZES = [
+  "s-1vcpu-512mb-10gb",
+  "s-1vcpu-1gb",
+  "s-1vcpu-2gb",
+  "s-2vcpu-2gb",
+  "s-2vcpu-4gb",
+  "s-4vcpu-8gb",
+];
+
+// DigitalOcean allowed regions
+const ALLOWED_DO_REGIONS = [
+  "nyc1", "nyc3", "sfo3", "ams3", "sgp1", "lon1", "fra1",
+  "tor1", "blr1", "syd1",
+];
+
 export interface ValidationError {
   field: string;
   message: string;
@@ -218,4 +234,73 @@ export function validateExecCommand(body: unknown): {
     command: b.command as string[],
     timeout: b.timeout !== undefined ? Number(b.timeout) : undefined,
   };
+}
+
+export function validateCreateDroplet(body: unknown): {
+  ok: true;
+} | {
+  ok: false;
+  errors: ValidationError[];
+} {
+  if (!body || typeof body !== "object") {
+    return errors(err("body", "Request body must be an object"));
+  }
+
+  const b = body as Record<string, unknown>;
+  const errs: ValidationError[] = [];
+
+  // name (required)
+  if (typeof b.name !== "string" || b.name.length === 0) {
+    errs.push(err("name", "name is required"));
+  } else if (b.name.length > MAX_NAME_LENGTH) {
+    errs.push(err("name", `Must be max ${MAX_NAME_LENGTH} chars`));
+  } else if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(b.name)) {
+    errs.push(err("name", "Must start with alphanumeric, contain only alphanumeric, dots, hyphens, underscores"));
+  }
+
+  // region (required)
+  if (typeof b.region !== "string" || !ALLOWED_DO_REGIONS.includes(b.region)) {
+    errs.push(err("region", `Must be one of: ${ALLOWED_DO_REGIONS.join(", ")}`));
+  }
+
+  // size (required, must be in allowlist)
+  if (typeof b.size !== "string" || !ALLOWED_DO_SIZES.includes(b.size)) {
+    errs.push(err("size", `Must be one of: ${ALLOWED_DO_SIZES.join(", ")}`));
+  }
+
+  // image (required)
+  if (typeof b.image !== "string" && typeof b.image !== "number") {
+    errs.push(err("image", "image is required (string slug or numeric ID)"));
+  } else if (typeof b.image === "string" && (b.image.length === 0 || b.image.length > 256)) {
+    errs.push(err("image", "image slug must be 1-256 chars"));
+  } else if (typeof b.image === "number" && (!Number.isInteger(b.image) || b.image <= 0)) {
+    errs.push(err("image", "image ID must be a positive integer"));
+  }
+
+  // tags (optional, array of strings)
+  if (b.tags !== undefined) {
+    if (!Array.isArray(b.tags)) {
+      errs.push(err("tags", "Must be an array of strings"));
+    } else if (b.tags.length > 10) {
+      errs.push(err("tags", "Max 10 tags"));
+    } else {
+      for (const t of b.tags) {
+        if (typeof t !== "string" || t.length > 128) {
+          errs.push(err("tags", "Each tag must be a string, max 128 chars"));
+          break;
+        }
+      }
+    }
+  }
+
+  // user_data (optional, limit size)
+  if (b.user_data !== undefined) {
+    if (typeof b.user_data !== "string") {
+      errs.push(err("user_data", "Must be a string"));
+    } else if (b.user_data.length > 65536) {
+      errs.push(err("user_data", "Must be max 65536 chars"));
+    }
+  }
+
+  return errs.length > 0 ? errors(...errs) : { ok: true };
 }
