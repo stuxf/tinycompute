@@ -1,9 +1,8 @@
 import {
-  mppx, upstashClient, PRICES,
+  mppx,  PRICES,
   requireWallet, extractParam,
   withErrorHandling, jsonResponse,
-} from "@/lib/server-utils";
-import { UpstashKVClient } from "@/lib/upstash/kv";
+getKVClient, } from "@/lib/server-utils";
 
 export const dynamic = "force-dynamic";
 
@@ -13,8 +12,7 @@ export const POST = mppx.charge({ amount: PRICES.KV_OP, description: "KV get" })
     requireWallet(req);
     const dbId = extractParam(req, "kv");
     const body = await req.json();
-    const db = await upstashClient.databases.get(dbId);
-    const kv = new UpstashKVClient({ url: `https://${db.endpoint}`, token: db.rest_token });
+    const kv = await getKVClient(dbId);
     const value = await kv.get(body.key);
     return jsonResponse({ key: body.key, value });
   }),

@@ -65,7 +65,7 @@ function elapsedMinutes(session: BillingSession): number {
 }
 
 function currentCost(session: BillingSession): number {
-  return Math.ceil(elapsedMinutes(session) * RATE_PER_MINUTE);
+  return elapsedMinutes(session) * RATE_PER_MINUTE;
 }
 
 export function getBillingInfo(machineId: string): BillingInfo | null {

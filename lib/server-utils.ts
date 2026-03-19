@@ -14,7 +14,6 @@ import {
 } from "./ownership";
 import {
   startSession,
-  stopSession,
   startBillingEnforcement,
   stopBillingEnforcement,
 } from "./billing";
@@ -227,5 +226,11 @@ if (!isVercel) {
 }
 
 // Re-export billing functions
-export { stopSession as stopBillingSession_fn } from "./billing";
 export { getBillingInfo } from "./billing";
+
+// KV helper — reuse cached database lookup
+export async function getKVClient(dbId: string) {
+  const { UpstashKVClient } = await import("./upstash/kv");
+  const db = await upstashClient.databases.get(dbId);
+  return new UpstashKVClient({ url: `https://${db.endpoint}`, token: db.rest_token });
+}
