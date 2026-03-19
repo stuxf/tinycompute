@@ -25,6 +25,21 @@ export const POST = mppx.charge({ amount: PRICES.MACHINE_SETUP, description: "Ma
     const body = await req.json();
     const v = validateCreateMachine(body);
     if (!v.ok) return validationErrorResponse(v.errors);
+
+    // Apply TTL: wrap the process with `timeout` so the machine self-terminates
+    const ttlMinutes = body.ttl_minutes;
+    if (ttlMinutes && typeof ttlMinutes === "number" && ttlMinutes > 0) {
+      const ttlSeconds = Math.min(ttlMinutes, 1440) * 60; // max 24 hours
+      const originalCmd = body.config.init?.cmd ?? body.config.init?.exec ?? [];
+      // Wrap with timeout — when it expires, auto_destroy cleans up
+      body.config.init = {
+        ...body.config.init,
+        exec: ["timeout", String(ttlSeconds), ...(originalCmd.length > 0 ? originalCmd : ["sleep", "infinity"])],
+      };
+      body.config.auto_destroy = true;
+      body.config.restart = { policy: "no" };
+    }
+
     const machine = await fly.machines.create(body);
     const wallet = getPayerWallet(req);
     if (wallet) await setMachineOwner(machine.id, wallet);

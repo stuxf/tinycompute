@@ -66,6 +66,14 @@ HTTP/HTTPS (web apps):
 
 Do NOT add `"handlers": ["tls"]` for raw TCP protocols like Minecraft, PostgreSQL, Redis, etc. Only use handlers for HTTP traffic.
 
+## Auto-Destroy (TTL)
+
+Add `"ttl_minutes": 60` to your create request to auto-destroy the machine after the specified time. Max 1440 minutes (24 hours). The machine self-terminates — no cron or client-side timer needed.
+
+```
+tempo request -t -X POST --json '{"name":"temp-server","ttl_minutes":10,"region":"sjc","config":{"image":"ubuntu:latest","guest":{"cpu_kind":"shared","cpus":1,"memory_mb":512}}}' https://tinycompute.dev/api/machines
+```
+
 ## Providers
 
 - **Fly.io**: Firecracker microVMs, 35+ regions, sub-second boot
