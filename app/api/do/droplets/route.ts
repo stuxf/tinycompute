@@ -19,34 +19,23 @@ export const GET = mppx.charge({ amount: PRICES.AUTH, description: "List droplet
   }),
 );
 
-// --- Create droplet (dynamic charge based on size) ---
-export async function POST(req: Request) {
-  const body = await req.json();
-  const v = validateCreateDroplet(body);
-  if (!v.ok) return Response.json(
-    { error: "Validation failed", code: "VALIDATION_ERROR", details: v.errors },
-    { status: 400 },
-  );
+// --- Create droplet ($0.10 flat setup + dynamic runtime pricing in response) ---
+export const POST = mppx.charge({ amount: PRICES.MACHINE_SETUP, description: "Droplet setup fee" })(
+  withErrorHandling(async (req) => {
+    const body = await req.json();
+    const v = validateCreateDroplet(body);
+    if (!v.ok) return validationErrorResponse(v.errors);
+    const droplet = await doClient.droplets.create(body);
+    const wallet = getPayerWallet(req);
+    if (wallet) await setDropletOwner(String(droplet.id), wallet);
 
-  const rate = computeDropletRate(body.size);
-
-  const handler = mppx.charge({
-    amount: rate.setupFee,
-    description: `Droplet setup (${body.size}) — runtime ${rate.ratePretty}`,
-  })(
-    withErrorHandling(async () => {
-      const droplet = await doClient.droplets.create(body);
-      const wallet = getPayerWallet(req);
-      if (wallet) await setDropletOwner(String(droplet.id), wallet);
-      return jsonResponse({
-        ...droplet,
-        pricing: {
-          setupFee: `$${rate.setupFee}`,
-          ratePerMin: rate.ratePretty,
-        },
-      }, 201);
-    }),
-  );
-
-  return handler(req);
-}
+    const rate = computeDropletRate(body.size);
+    return jsonResponse({
+      ...droplet,
+      pricing: {
+        setupFee: `$${PRICES.MACHINE_SETUP}`,
+        runtimeRate: rate.ratePretty,
+      },
+    }, 201);
+  }),
+);

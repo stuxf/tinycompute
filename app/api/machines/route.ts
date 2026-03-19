@@ -1,7 +1,6 @@
 import {
   mppx, fly, PRICES,
-  requireWallet, getPayerWallet,
-  computeSetupFee, computeRate,
+  requireWallet, getPayerWallet, computeRate,
   withErrorHandling, validationErrorResponse, jsonResponse,
 } from "@/lib/server-utils";
 import { validateCreateMachine } from "@/lib/validation";
@@ -20,64 +19,49 @@ export const GET = mppx.charge({ amount: PRICES.AUTH, description: "List machine
   }),
 );
 
-// --- Create machine (dynamic charge based on size) ---
-export async function POST(req: Request) {
-  // Clone request before reading body — mppx needs to read it again
-  const cloned = req.clone();
-  const body = await cloned.json();
-  const v = validateCreateMachine(body);
-  if (!v.ok) return Response.json(
-    { error: "Validation failed", code: "VALIDATION_ERROR", details: v.errors },
-    { status: 400 },
-  );
+// --- Create machine ($0.10 flat setup + dynamic runtime pricing shown in response) ---
+export const POST = mppx.charge({ amount: PRICES.MACHINE_SETUP, description: "Machine setup fee" })(
+  withErrorHandling(async (req) => {
+    const body = await req.json();
+    const v = validateCreateMachine(body);
+    if (!v.ok) return validationErrorResponse(v.errors);
 
-  // Compute dynamic price based on machine config
-  const setupFee = computeSetupFee(body.config);
-  const rate = computeRate(body.config);
+    // Apply TTL
+    const ttlMinutes = body.ttl_minutes;
+    if (ttlMinutes && typeof ttlMinutes === "number" && ttlMinutes > 0) {
+      const ttlSeconds = Math.min(ttlMinutes, 1440) * 60;
+      const originalCmd = body.config.init?.cmd ?? body.config.init?.exec ?? [];
+      body.config.init = {
+        ...body.config.init,
+        exec: ["timeout", String(ttlSeconds), ...(originalCmd.length > 0 ? originalCmd : ["sleep", "infinity"])],
+      };
+      body.config.auto_destroy = true;
+      body.config.restart = { policy: "no" };
+    }
 
-  // Charge the setup fee via mppx
-  const handler = mppx.charge({
-    amount: setupFee,
-    description: `Machine setup (${body.config?.guest?.cpus ?? 1}cpu/${body.config?.guest?.memory_mb ?? 256}mb) — runtime ${rate.ratePretty}`,
-  })(
-    withErrorHandling(async () => {
-      // Apply TTL
-      const ttlMinutes = body.ttl_minutes;
-      if (ttlMinutes && typeof ttlMinutes === "number" && ttlMinutes > 0) {
-        const ttlSeconds = Math.min(ttlMinutes, 1440) * 60;
-        const originalCmd = body.config.init?.cmd ?? body.config.init?.exec ?? [];
-        body.config.init = {
-          ...body.config.init,
-          exec: ["timeout", String(ttlSeconds), ...(originalCmd.length > 0 ? originalCmd : ["sleep", "infinity"])],
-        };
-        body.config.auto_destroy = true;
-        body.config.restart = { policy: "no" };
-      }
+    const machine = await fly.machines.create(body);
+    const wallet = getPayerWallet(req);
+    if (wallet) await setMachineOwner(machine.id, wallet);
 
-      const machine = await fly.machines.create(body);
-      const wallet = getPayerWallet(req);
-      if (wallet) await setMachineOwner(machine.id, wallet);
+    // Compute runtime pricing for this machine size
+    const rate = computeRate(body.config);
+    const ips = await fly.apps.listIps(process.env.FLY_APP_NAME!).catch(() => []);
+    const services = body.config?.services ?? [];
+    const ports = services.flatMap((s: any) => s.ports?.map((p: any) => p.port) ?? []);
 
-      const ips = await fly.apps.listIps(process.env.FLY_APP_NAME!).catch(() => []);
-      const services = body.config?.services ?? [];
-      const ports = services.flatMap((s: any) => s.ports?.map((p: any) => p.port) ?? []);
-
-      return jsonResponse({
-        ...machine,
-        pricing: {
-          setupFee: `$${setupFee}`,
-          ratePerMin: rate.ratePretty,
-        },
-        connection: {
-          ips: Array.isArray(ips) ? ips : [],
-          ports,
-          hint: ports.length > 0
-            ? `Connect to <ip>:${ports[0]}`
-            : "No services/ports configured — use exec to interact",
-        },
-      }, 201);
-    }),
-  );
-
-  return handler(req);
-}
+    return jsonResponse({
+      ...machine,
+      pricing: {
+        setupFee: `$${PRICES.MACHINE_SETUP}`,
+        runtimeRate: rate.ratePretty,
+      },
+      connection: {
+        ips: Array.isArray(ips) ? ips : [],
+        ports,
+        hint: ports.length > 0
+          ? `Connect to <ip>:${ports[0]}`
+          : "No services/ports configured — use exec to interact",
+      },
+    }, 201);
+  }),
+);
