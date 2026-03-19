@@ -1,0 +1,79 @@
+# TinyCompute
+
+> A multi-provider compute marketplace via micropayments. No accounts. No API keys. Pay per minute.
+
+TinyCompute provides programmatic access to three cloud providers — Fly.io, DigitalOcean, and Vercel — through a unified API. Payment is handled via MPP (Micropayment Protocol) using USDC. No signup required; attach a payment to your API call and go.
+
+## Providers
+
+- **Fly.io**: MicroVMs (machines), persistent volumes, app management, IP allocation
+- **DigitalOcean**: Droplets (VMs) with power management
+- **Vercel**: Projects, deployments, domain management (check availability, purchase, DNS)
+
+## Authentication
+
+All endpoints require an MPP credential in the Authorization header. Your wallet address is derived from the credential and used for resource ownership tracking.
+
+## Pricing
+
+| Action | Cost |
+|--------|------|
+| Create machine / droplet | $0.10 |
+| Create Vercel project | $0.10 |
+| Start / restart machine or droplet | $0.005/min (session) |
+| Execute command | $0.01 |
+| Create volume | $0.05 |
+| Extend volume | $0.05 |
+| Allocate IP | $0.01 |
+| Check domain availability | $0.001 |
+| Buy domain | Dynamic (market price) |
+| Stop, destroy, list, status | Free |
+
+## API Endpoints
+
+### Fly.io Machines
+- POST /api/machines — Create machine ($0.10)
+- GET /api/machines — List my machines (free, wallet auth)
+- GET /api/machines/:id — Get machine (free, ownership)
+- POST /api/machines/:id/start — Start machine (session $0.005/min)
+- POST /api/machines/:id/stop — Stop machine (free)
+- POST /api/machines/:id/restart — Restart machine (session $0.005/min)
+- DELETE /api/machines/:id — Destroy machine (free)
+- POST /api/machines/:id/exec — Execute command ($0.01)
+- POST /api/machines/:id/wait — Wait for state (free)
+- GET /api/machines/:id/events — Machine events (free)
+- POST /api/machines/:id/suspend — Suspend machine (free)
+- GET /api/machines/:id/ps — List processes (free)
+- GET /api/machines/:id/billing — Billing info (free)
+
+### Fly.io Volumes
+- POST /api/volumes — Create volume ($0.05)
+- GET /api/volumes — List my volumes (free, wallet auth)
+- GET /api/volumes/:id — Get volume (free, ownership)
+- DELETE /api/volumes/:id — Delete volume (free)
+- PUT /api/volumes/:id/extend — Extend volume ($0.05)
+
+### Fly.io Apps
+- POST /api/apps — Create app (free, wallet auth)
+- DELETE /api/apps/:name — Delete app (free, wallet auth)
+- GET /api/apps/:name/ips — List IPs (free, no auth)
+- POST /api/apps/:name/ips — Allocate IP ($0.01)
+
+### DigitalOcean Droplets
+- POST /api/do/droplets — Create droplet ($0.10)
+- GET /api/do/droplets — List my droplets (free, wallet auth)
+- GET /api/do/droplets/:id — Get droplet (free, ownership)
+- POST /api/do/droplets/:id/start — Power on droplet (session $0.005/min)
+- POST /api/do/droplets/:id/stop — Power off droplet (free)
+- DELETE /api/do/droplets/:id — Destroy droplet (free)
+
+### Vercel Projects
+- POST /api/vercel/projects — Create project ($0.10)
+- GET /api/vercel/projects — List projects (free, wallet auth)
+
+### Vercel Domains
+- POST /api/vercel/domains/check — Check domain availability ($0.001)
+- POST /api/vercel/domains/buy — Buy a domain (dynamic price)
+
+## Health
+- GET /health — Health check (free, no auth)

@@ -69,15 +69,12 @@ if (!DO_TOKEN) {
 }
 
 if (!VERCEL_API_TOKEN) {
-  if (!isVercel) {
-    console.error("Missing VERCEL_API_TOKEN env var");
-    process.exit(1);
-  }
+  console.warn("VERCEL_API_TOKEN not set — Vercel provider endpoints will not work");
 }
 
 const fly = new FlyClient({ token: FLY_TOKEN!, appName: FLY_APP! });
 const doClient = new DOClient({ token: DO_TOKEN!, projectId: DO_PROJECT_ID });
-const vercelClient = new VercelClient({ token: VERCEL_API_TOKEN! });
+const vercelClient = new VercelClient({ token: VERCEL_API_TOKEN ?? "" });
 
 // --- Standardized error responses ---
 
@@ -112,6 +109,8 @@ const PRICES = {
   ALLOCATE_IP: "10000",       // $0.01
   SESSION_PER_MIN: "5000",    // $0.005/min
   SESSION_DEPOSIT: "300000",  // $0.30 suggested (1 hour)
+  VERCEL_PROJECT: "100000",   // $0.10
+  DOMAIN_CHECK: "1000",       // $0.001
 } as const;
 
 // --- Helpers ---
@@ -501,18 +500,81 @@ app.delete("/api/do/droplets/:id", withErrorHandling(async (c: Context) => {
   return c.json({ ok: true });
 }));
 
+// =============
+// Vercel
+// =============
+
+// --- Projects: Create (charge) ---
+app.post("/api/vercel/projects",
+  mppx.charge({ amount: PRICES.VERCEL_PROJECT, description: "Vercel project setup fee" }),
+  withErrorHandling(async (c: Context) => {
+    requireWallet(c);
+    const body = await c.req.json();
+    const project = await vercelClient.projects.create(body);
+    return c.json(project, 201);
+  }),
+);
+
+// --- Projects: List (free) ---
+app.get("/api/vercel/projects", withErrorHandling(async (c: Context) => {
+  requireWallet(c);
+  const res = await vercelClient.projects.list();
+  return c.json(res.projects);
+}));
+
+// --- Domains: Check availability (charge) ---
+app.post("/api/vercel/domains/check",
+  mppx.charge({ amount: PRICES.DOMAIN_CHECK, description: "Domain availability check" }),
+  withErrorHandling(async (c: Context) => {
+    requireWallet(c);
+    const body = await c.req.json();
+    const result = await vercelClient.domains.checkAvailability(body.name);
+    return c.json(result);
+  }),
+);
+
+// --- Domains: Buy (dynamic charge) ---
+app.post("/api/vercel/domains/buy",
+  async (c: Context, next: Next) => {
+    const body = await c.req.json();
+    if (!body.name || typeof body.name !== "string") {
+      return validationErrorResponse(c, [{ field: "name", message: "Domain name is required" }]);
+    }
+    // Look up the price before charging
+    const availability = await vercelClient.domains.checkAvailability(body.name);
+    if (!availability.available) {
+      return errorResponse(c, 400, `Domain ${body.name} is not available`, "DOMAIN_UNAVAILABLE");
+    }
+    const price = availability.price ?? 0;
+    // Convert dollar price to USDC base units (1 unit = $0.000001)
+    const amount = String(Math.ceil(price * 1_000_000));
+    c.set("validatedBody", body);
+    c.set("domainPrice", amount);
+    await next();
+  },
+  async (c: Context, next: Next) => {
+    const amount = c.get("domainPrice") as string;
+    const charge = mppx.charge({ amount, description: "Domain purchase" });
+    return charge(c, next);
+  },
+  withErrorHandling(async (c: Context) => {
+    const body = c.get("validatedBody");
+    const domain = await vercelClient.domains.buy(body);
+    return c.json(domain, 201);
+  }),
+);
+
 // --- Export for Vercel ---
 export default app;
 
 // --- Lifecycle (skip in serverless) ---
 if (!isVercel) {
-  import("dotenv/config").then(() => import("@hono/node-server")).then(({ serve }) => {
-    startBillingEnforcement(fly.machines);
-    process.on("SIGTERM", () => { stopBillingEnforcement(); process.exit(0); });
-    process.on("SIGINT", () => { stopBillingEnforcement(); process.exit(0); });
+  const { serve } = await import("@hono/node-server");
+  startBillingEnforcement(fly.machines);
+  process.on("SIGTERM", () => { stopBillingEnforcement(); process.exit(0); });
+  process.on("SIGINT", () => { stopBillingEnforcement(); process.exit(0); });
 
-    serve({ fetch: app.fetch, port: PORT, hostname: "0.0.0.0" }, (info) => {
-      console.log(`Server running on http://0.0.0.0:${info.port}`);
-    });
+  serve({ fetch: app.fetch, port: PORT, hostname: "0.0.0.0" }, (info) => {
+    console.log(`Server running on http://0.0.0.0:${info.port}`);
   });
 }
