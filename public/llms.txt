@@ -45,7 +45,8 @@ tempo request -t -X DELETE https://tinycompute.fly.dev/api/machines/{id}
 
 - **Fly.io**: Firecracker microVMs, 35+ regions, sub-second boot
 - **DigitalOcean**: Droplets (VMs)
-- **Vercel**: Projects, domains
+- **Vercel**: Projects, deployments, domains, DNS
+- **Upstash**: Redis-compatible KV databases
 
 ## Pricing
 
@@ -57,9 +58,12 @@ tempo request -t -X DELETE https://tinycompute.fly.dev/api/machines/{id}
 | Create volume | $0.05 |
 | Extend volume | $0.05 |
 | Allocate IP | $0.01 |
-| Create Vercel project | $0.10 |
+| Create Vercel project / deployment | $0.10 |
+| Create KV database | $0.05 |
+| Add DNS record / env var / project domain | $0.01 |
 | Check domain availability | $0.001 |
-| Buy domain | Market price |
+| Buy / renew domain | Market price |
+| KV get / set / del / keys | $0.001 |
 | Get, list, stop, destroy, etc. | $0.001 |
 
 ## API Reference
@@ -116,12 +120,52 @@ POST /api/do/droplets/:id/start — Power on (session $0.005/min)
 POST /api/do/droplets/:id/stop — Power off ($0.001)
 DELETE /api/do/droplets/:id — Destroy ($0.001)
 
-### Vercel
+### Vercel Projects
 
 POST /api/vercel/projects — Create project ($0.10)
 GET /api/vercel/projects — List projects ($0.001)
+GET /api/vercel/projects/:id — Get project ($0.001)
+DELETE /api/vercel/projects/:id — Delete project ($0.001)
+POST /api/vercel/projects/:id/env — Add env var ($0.01)
+  Body: {"key":"NODE_ENV","value":"production","target":["production","preview"]}
+POST /api/vercel/projects/:id/domains — Add domain to project ($0.01)
+  Body: {"domain":"example.com"}
+
+### Vercel Deployments
+
+POST /api/vercel/deployments — Create deployment ($0.10)
+  Body: {"name":"my-app","project":"prj_xxx","target":"production"}
+GET /api/vercel/deployments — List deployments ($0.001)
+  Query: ?projectId=xxx&limit=20&state=READY&target=production
+
+### Vercel Domains
+
 POST /api/vercel/domains/check — Check domain availability ($0.001)
 POST /api/vercel/domains/buy — Buy domain (market price)
+GET /api/vercel/domains — List domains ($0.001)
+GET /api/vercel/domains/:name — Get domain info ($0.001)
+DELETE /api/vercel/domains/:name — Get auth code for transfer ($0.001)
+GET /api/vercel/domains/:name/price — Get domain price ($0.001)
+POST /api/vercel/domains/:name/renew — Renew domain (market price)
+GET /api/vercel/domains/:name/dns — List DNS records ($0.001)
+POST /api/vercel/domains/:name/dns — Add DNS record ($0.01)
+  Body: {"type":"A","name":"@","value":"1.2.3.4"}
+DELETE /api/vercel/domains/:name/dns/:id — Delete DNS record ($0.001)
+
+### Upstash KV
+
+POST /api/kv/databases — Create KV database ($0.05)
+  Body: {"name":"my-cache","region":"us-east-1"}
+GET /api/kv/databases — List databases ($0.001)
+DELETE /api/kv/databases/:id — Delete database ($0.001)
+POST /api/kv/:db/set — Set key ($0.001)
+  Body: {"key":"mykey","value":"myval","ex":3600}
+POST /api/kv/:db/get — Get key ($0.001)
+  Body: {"key":"mykey"}
+POST /api/kv/:db/del — Delete key ($0.001)
+  Body: {"key":"mykey"}
+POST /api/kv/:db/keys — List keys ($0.001)
+  Body: {"pattern":"user:*"}
 
 ### System
 

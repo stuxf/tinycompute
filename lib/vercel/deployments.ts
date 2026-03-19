@@ -22,6 +22,21 @@ export interface VercelDeployment {
   inspectorUrl?: string;
 }
 
+export interface DeploymentEvent {
+  type: string;
+  created: number;
+  payload?: Record<string, unknown>;
+  text?: string;
+}
+
+export interface ListDeploymentsParams {
+  projectId?: string;
+  limit?: number;
+  from?: number;
+  state?: VercelDeployment["state"];
+  target?: "production" | "staging";
+}
+
 export interface CreateDeploymentRequest {
   name: string;
   project?: string;
@@ -54,35 +69,51 @@ export class VercelDeploymentsClient {
     return vercelRequest<T>(this.token, method, path, body);
   }
 
-  async list(
-    projectId?: string,
-    limit = 20,
-    from?: number,
+  async listDeployments(
+    params?: ListDeploymentsParams,
   ): Promise<{ deployments: VercelDeployment[] }> {
-    const params = new URLSearchParams({ limit: String(limit) });
-    if (projectId) params.set("projectId", projectId);
-    if (from !== undefined) params.set("from", String(from));
+    const qs = new URLSearchParams();
+    if (params?.limit) qs.set("limit", String(params.limit));
+    if (params?.projectId) qs.set("projectId", params.projectId);
+    if (params?.from !== undefined) qs.set("from", String(params.from));
+    if (params?.state) qs.set("state", params.state);
+    if (params?.target) qs.set("target", params.target);
+    const query = qs.toString();
     return this.req<{ deployments: VercelDeployment[] }>(
       "GET",
-      `/v6/deployments?${params}`,
+      `/v6/deployments${query ? `?${query}` : ""}`,
     );
   }
 
-  async get(deploymentId: string): Promise<VercelDeployment> {
+  async getDeployment(deploymentId: string): Promise<VercelDeployment> {
     return this.req<VercelDeployment>(
       "GET",
       `/v13/deployments/${encodeURIComponent(deploymentId)}`,
     );
   }
 
-  async create(req: CreateDeploymentRequest): Promise<VercelDeployment> {
-    return this.req<VercelDeployment>("POST", "/v13/deployments", req);
+  async createDeployment(body: CreateDeploymentRequest): Promise<VercelDeployment> {
+    return this.req<VercelDeployment>("POST", "/v13/deployments", body);
   }
 
-  async delete(deploymentId: string): Promise<void> {
+  async deleteDeployment(deploymentId: string): Promise<void> {
     await this.req<void>(
       "DELETE",
       `/v13/deployments/${encodeURIComponent(deploymentId)}`,
+    );
+  }
+
+  async cancelDeployment(deploymentId: string): Promise<VercelDeployment> {
+    return this.req<VercelDeployment>(
+      "PATCH",
+      `/v13/deployments/${encodeURIComponent(deploymentId)}/cancel`,
+    );
+  }
+
+  async getDeploymentEvents(deploymentId: string): Promise<DeploymentEvent[]> {
+    return this.req<DeploymentEvent[]>(
+      "GET",
+      `/v3/deployments/${encodeURIComponent(deploymentId)}/events`,
     );
   }
 }

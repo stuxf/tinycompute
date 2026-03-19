@@ -165,9 +165,9 @@
   <h2>Why TinyCompute</h2>
   <div class="steps">
     <div class="step">
-      <div class="step-num">3</div>
+      <div class="step-num">4</div>
       <div class="step-title">Providers</div>
-      <div class="step-desc">Fly.io microVMs, DigitalOcean Droplets, and Vercel. Pick the best fit for your workload.</div>
+      <div class="step-desc">Fly.io microVMs, DigitalOcean Droplets, Vercel, and Upstash KV. Pick the best fit for your workload.</div>
     </div>
     <div class="step">
       <div class="step-num">35+</div>
@@ -222,9 +222,12 @@
       <tr><td>Create volume</td><td>One-time</td><td>$0.05</td></tr>
       <tr><td>Extend volume</td><td>One-time</td><td>$0.05</td></tr>
       <tr><td>Allocate IP</td><td>One-time</td><td>$0.01</td></tr>
-      <tr><td>Create Vercel project</td><td>One-time</td><td>$0.10</td></tr>
+      <tr><td>Create Vercel project / deployment</td><td>One-time</td><td>$0.10</td></tr>
+      <tr><td>Create KV database</td><td>One-time</td><td>$0.05</td></tr>
+      <tr><td>Add DNS record / env var / project domain</td><td>One-time</td><td>$0.01</td></tr>
       <tr><td>Check domain availability</td><td>One-time</td><td>$0.001</td></tr>
-      <tr><td>Buy domain</td><td>One-time</td><td>Dynamic</td></tr>
+      <tr><td>Buy / renew domain</td><td>One-time</td><td>Dynamic</td></tr>
+      <tr><td>KV get / set / del / keys</td><td>One-time</td><td>$0.001</td></tr>
       <tr><td>Stop, destroy, list, status</td><td class="free">Free</td><td class="free">Free</td></tr>
       <tr><td>Create / delete app, list IPs</td><td class="free">Free</td><td class="free">Free</td></tr>
     </tbody>
@@ -266,8 +269,28 @@
     <div class="endpoint"><span class="method">DEL</span><span class="path">/api/do/droplets/:id</span><span class="ep-desc">Destroy droplet</span></div>
     <div class="endpoint"><span class="method">POST</span><span class="path">/api/vercel/projects</span><span class="ep-desc">Create project</span></div>
     <div class="endpoint"><span class="method">GET</span><span class="path">/api/vercel/projects</span><span class="ep-desc">List projects</span></div>
+    <div class="endpoint"><span class="method">GET</span><span class="path">/api/vercel/projects/:id</span><span class="ep-desc">Get project</span></div>
+    <div class="endpoint"><span class="method">DEL</span><span class="path">/api/vercel/projects/:id</span><span class="ep-desc">Delete project</span></div>
+    <div class="endpoint"><span class="method">POST</span><span class="path">/api/vercel/projects/:id/env</span><span class="ep-desc">Add env var</span></div>
+    <div class="endpoint"><span class="method">POST</span><span class="path">/api/vercel/projects/:id/domains</span><span class="ep-desc">Add project domain</span></div>
+    <div class="endpoint"><span class="method">POST</span><span class="path">/api/vercel/deployments</span><span class="ep-desc">Create deployment</span></div>
+    <div class="endpoint"><span class="method">GET</span><span class="path">/api/vercel/deployments</span><span class="ep-desc">List deployments</span></div>
     <div class="endpoint"><span class="method">POST</span><span class="path">/api/vercel/domains/check</span><span class="ep-desc">Check domain</span></div>
     <div class="endpoint"><span class="method">POST</span><span class="path">/api/vercel/domains/buy</span><span class="ep-desc">Buy domain</span></div>
+    <div class="endpoint"><span class="method">GET</span><span class="path">/api/vercel/domains</span><span class="ep-desc">List domains</span></div>
+    <div class="endpoint"><span class="method">GET</span><span class="path">/api/vercel/domains/:name</span><span class="ep-desc">Get domain</span></div>
+    <div class="endpoint"><span class="method">GET</span><span class="path">/api/vercel/domains/:name/price</span><span class="ep-desc">Domain price</span></div>
+    <div class="endpoint"><span class="method">POST</span><span class="path">/api/vercel/domains/:name/renew</span><span class="ep-desc">Renew domain</span></div>
+    <div class="endpoint"><span class="method">GET</span><span class="path">/api/vercel/domains/:name/dns</span><span class="ep-desc">List DNS</span></div>
+    <div class="endpoint"><span class="method">POST</span><span class="path">/api/vercel/domains/:name/dns</span><span class="ep-desc">Add DNS record</span></div>
+    <div class="endpoint"><span class="method">DEL</span><span class="path">/api/vercel/domains/:name/dns/:id</span><span class="ep-desc">Delete DNS record</span></div>
+    <div class="endpoint"><span class="method">POST</span><span class="path">/api/kv/databases</span><span class="ep-desc">Create KV database</span></div>
+    <div class="endpoint"><span class="method">GET</span><span class="path">/api/kv/databases</span><span class="ep-desc">List KV databases</span></div>
+    <div class="endpoint"><span class="method">DEL</span><span class="path">/api/kv/databases/:id</span><span class="ep-desc">Delete KV database</span></div>
+    <div class="endpoint"><span class="method">POST</span><span class="path">/api/kv/:db/set</span><span class="ep-desc">KV set</span></div>
+    <div class="endpoint"><span class="method">POST</span><span class="path">/api/kv/:db/get</span><span class="ep-desc">KV get</span></div>
+    <div class="endpoint"><span class="method">POST</span><span class="path">/api/kv/:db/del</span><span class="ep-desc">KV del</span></div>
+    <div class="endpoint"><span class="method">POST</span><span class="path">/api/kv/:db/keys</span><span class="ep-desc">KV list keys</span></div>
   </div>
 </section>
 

@@ -56,6 +56,21 @@ export interface BuyDomainRequest {
   expectedPrice?: number;
 }
 
+export interface DomainPrice {
+  price: number;
+  period: number;
+}
+
+export interface TldPrice {
+  tld: string;
+  price: number;
+  period: number;
+}
+
+export interface AuthCode {
+  authCode: string;
+}
+
 export class VercelDomainsClient {
   private token: string;
 
@@ -122,5 +137,65 @@ export class VercelDomainsClient {
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
+  }
+
+  async deleteDnsRecord(domain: string, recordId: string): Promise<void> {
+    await this.req<undefined>(
+      "DELETE",
+      `/v2/domains/${encodeURIComponent(domain)}/records/${encodeURIComponent(recordId)}`,
+    );
+  }
+
+  async get(name: string): Promise<VercelDomain> {
+    const res = await this.req<{ domain: VercelDomain }>(
+      "GET",
+      `/v4/domains/${encodeURIComponent(name)}`,
+    );
+    return res.domain;
+  }
+
+  async getPrice(name: string): Promise<DomainPrice> {
+    return this.req<DomainPrice>(
+      "GET",
+      `/v1/registrar/domains/${encodeURIComponent(name)}/price`,
+    );
+  }
+
+  async getTldPrice(tld: string): Promise<TldPrice> {
+    return this.req<TldPrice>(
+      "GET",
+      `/v1/registrar/tlds/${encodeURIComponent(tld)}/price`,
+    );
+  }
+
+  async renew(name: string): Promise<VercelDomain> {
+    const res = await this.req<{ domain: VercelDomain }>(
+      "POST",
+      `/v1/registrar/domains/${encodeURIComponent(name)}/renew`,
+    );
+    return res.domain;
+  }
+
+  async setAutoRenew(name: string, enabled: boolean): Promise<void> {
+    await this.req<undefined>(
+      "PUT",
+      `/v1/registrar/domains/${encodeURIComponent(name)}/auto-renew`,
+      { autoRenew: enabled },
+    );
+  }
+
+  async updateNameservers(name: string, nameservers: string[]): Promise<void> {
+    await this.req<undefined>(
+      "PUT",
+      `/v1/registrar/domains/${encodeURIComponent(name)}/nameservers`,
+      { nameservers },
+    );
+  }
+
+  async getAuthCode(name: string): Promise<AuthCode> {
+    return this.req<AuthCode>(
+      "GET",
+      `/v1/registrar/domains/${encodeURIComponent(name)}/auth-code`,
+    );
   }
 }

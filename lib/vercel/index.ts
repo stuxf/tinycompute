@@ -7,13 +7,17 @@ export { VercelProjectsClient } from "./projects";
 export type {
   VercelProject,
   CreateProjectRequest,
+  UpdateProjectRequest,
   EnvVar,
+  ProjectDomain,
 } from "./projects";
 
 export { VercelDeploymentsClient } from "./deployments";
 export type {
   VercelDeployment,
   CreateDeploymentRequest,
+  DeploymentEvent,
+  ListDeploymentsParams,
 } from "./deployments";
 
 export { VercelDomainsClient } from "./domains";
@@ -23,6 +27,9 @@ export type {
   DnsRecord,
   CreateDnsRecordRequest,
   BuyDomainRequest,
+  DomainPrice,
+  TldPrice,
+  AuthCode,
 } from "./domains";
 
 import { VercelProjectsClient } from "./projects";

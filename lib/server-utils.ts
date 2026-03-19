@@ -8,6 +8,7 @@ import { Mppx, tempo } from "mppx/nextjs";
 import { FlyClient, FlyApiError } from "./fly/index";
 import { DOClient, DOApiError } from "./do/index";
 import { VercelClient, VercelApiError } from "./vercel/index";
+import { UpstashClient, UpstashApiError } from "./upstash/index";
 import {
   assertOwnership,
 } from "./ownership";
@@ -25,6 +26,8 @@ const FLY_APP = process.env.FLY_APP_NAME;
 const DO_TOKEN = process.env.DO_API_TOKEN;
 const DO_PROJECT_ID = process.env.DO_PROJECT_ID ?? "6952f275-0062-4c92-a8a7-dc2ca86cf195";
 const VERCEL_API_TOKEN = process.env.VERCEL_API_TOKEN;
+const UPSTASH_EMAIL = process.env.UPSTASH_EMAIL;
+const UPSTASH_API_KEY = process.env.UPSTASH_API_KEY;
 
 const isVercel = !!process.env.VERCEL;
 
@@ -44,6 +47,10 @@ if (!DO_TOKEN) {
 
 if (!VERCEL_API_TOKEN) {
   console.warn("VERCEL_API_TOKEN not set — Vercel provider endpoints will not work");
+}
+
+if (!UPSTASH_EMAIL || !UPSTASH_API_KEY) {
+  console.warn("UPSTASH_EMAIL or UPSTASH_API_KEY not set — Upstash KV endpoints will not work");
 }
 
 // --- MPP setup ---
@@ -71,6 +78,7 @@ export const mppx = Mppx.create({
 export const fly = new FlyClient({ token: FLY_TOKEN!, appName: FLY_APP! });
 export const doClient = new DOClient({ token: DO_TOKEN!, projectId: DO_PROJECT_ID });
 export const vercelClient = new VercelClient({ token: VERCEL_API_TOKEN ?? "" });
+export const upstashClient = new UpstashClient({ email: UPSTASH_EMAIL ?? "", apiKey: UPSTASH_API_KEY ?? "" });
 
 // --- Pricing constants ---
 export const PRICES = {
@@ -84,6 +92,8 @@ export const PRICES = {
   VERCEL_PROJECT: "0.1",
   DOMAIN_CHECK: "0.001",
   AUTH: "0.001",
+  KV_DATABASE_CREATE: "0.05",
+  KV_OP: "0.001",
 } as const;
 
 // --- Response helpers ---
@@ -189,6 +199,12 @@ export function withErrorHandling(
         const code = err.statusCode === 401 ? "AUTH_REQUIRED"
           : err.statusCode === 403 ? "FORBIDDEN"
           : "VERCEL_API_ERROR";
+        return errorResponse(err.statusCode, err.message, code);
+      }
+      if (err instanceof UpstashApiError) {
+        const code = err.statusCode === 401 ? "AUTH_REQUIRED"
+          : err.statusCode === 403 ? "FORBIDDEN"
+          : "UPSTASH_API_ERROR";
         return errorResponse(err.statusCode, err.message, code);
       }
       const message = err instanceof Error ? err.message : "Unknown error";
