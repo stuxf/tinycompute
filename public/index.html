@@ -157,7 +157,7 @@
 <!-- Hero -->
 <header>
   <h1>TinyCompute</h1>
-  <p class="hero-sub">A compute marketplace via micropayments. No accounts. No API keys. Pay per minute.</p>
+  <p class="hero-sub">A multi-provider compute marketplace via micropayments. No accounts. No API keys. Pay per minute.</p>
 </header>
 
 <!-- Why -->
@@ -165,9 +165,9 @@
   <h2>Why TinyCompute</h2>
   <div class="steps">
     <div class="step">
-      <div class="step-num">~1s</div>
-      <div class="step-title">Instant machines</div>
-      <div class="step-desc">Firecracker microVMs with hardware-level isolation. Boot in under a second.</div>
+      <div class="step-num">2</div>
+      <div class="step-title">Providers</div>
+      <div class="step-desc">Fly.io microVMs and DigitalOcean Droplets. Pick the best fit for your workload.</div>
     </div>
     <div class="step">
       <div class="step-num">35+</div>
@@ -216,8 +216,8 @@
       </tr>
     </thead>
     <tbody>
-      <tr><td>Create machine</td><td>One-time</td><td>$0.10</td></tr>
-      <tr><td>Start / restart machine</td><td>Session</td><td>$0.005/min</td></tr>
+      <tr><td>Create machine / droplet</td><td>One-time</td><td>$0.10</td></tr>
+      <tr><td>Start / restart machine or droplet</td><td>Session</td><td>$0.005/min</td></tr>
       <tr><td>Execute command</td><td>One-time</td><td>$0.01</td></tr>
       <tr><td>Create volume</td><td>One-time</td><td>$0.05</td></tr>
       <tr><td>Extend volume</td><td>One-time</td><td>$0.05</td></tr>
@@ -255,6 +255,12 @@
     <div class="endpoint"><span class="method">DEL</span><span class="path">/api/apps/:name</span><span class="ep-desc">Delete app</span></div>
     <div class="endpoint"><span class="method">GET</span><span class="path">/api/apps/:name/ips</span><span class="ep-desc">List IPs</span></div>
     <div class="endpoint"><span class="method">POST</span><span class="path">/api/apps/:name/ips</span><span class="ep-desc">Allocate IP</span></div>
+    <div class="endpoint"><span class="method">POST</span><span class="path">/api/do/droplets</span><span class="ep-desc">Create droplet</span></div>
+    <div class="endpoint"><span class="method">GET</span><span class="path">/api/do/droplets</span><span class="ep-desc">List my droplets</span></div>
+    <div class="endpoint"><span class="method">GET</span><span class="path">/api/do/droplets/:id</span><span class="ep-desc">Get droplet</span></div>
+    <div class="endpoint"><span class="method">POST</span><span class="path">/api/do/droplets/:id/start</span><span class="ep-desc">Power on droplet</span></div>
+    <div class="endpoint"><span class="method">POST</span><span class="path">/api/do/droplets/:id/stop</span><span class="ep-desc">Power off droplet</span></div>
+    <div class="endpoint"><span class="method">DEL</span><span class="path">/api/do/droplets/:id</span><span class="ep-desc">Destroy droplet</span></div>
   </div>
 </section>
 

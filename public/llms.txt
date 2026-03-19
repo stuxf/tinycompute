@@ -6,16 +6,17 @@
 
 TinyCompute is a compute marketplace that lets AI agents and automated systems provision cloud machines instantly by paying with USDC via MPP (Machine Payments Protocol). No signup, no API keys, no billing portal — just HTTP 402 payment and you have a running machine.
 
-We route to the best provider for your workload. Currently powered by Fly.io's Firecracker microVMs.
+We support multiple providers: Fly.io (Firecracker microVMs) and DigitalOcean (Droplets).
 
 ## Why TinyCompute?
 
 - Instant machines — Firecracker microVMs boot in under a second with hardware-level isolation
+- Multiple providers — Fly.io for microVMs, DigitalOcean for Droplets
 - 35+ global regions — deploy close to your users
 - Auto-stop on idle — machines suspend when unused, you stop paying
-- Persistent volumes — SSD storage that survives restarts
+- Persistent volumes — SSD storage that survives restarts (Fly)
 - Any Docker image — run game servers, databases, APIs, anything
-- Provider-agnostic — we pick the best infrastructure for your workload
+- Provider-agnostic — choose the best infrastructure for your workload
 
 ## Base URL
 
@@ -28,25 +29,25 @@ Paid endpoints return HTTP 402 with payment requirements. Pay via x402/MPP (USDC
 ## Pricing Summary
 
 One-time charges:
-- Create machine: $0.10
+- Create machine or droplet: $0.10
 - Create volume: $0.05
 - Extend volume: $0.05
 - Exec command: $0.01
 - Allocate IP: $0.01
 
 Session-based (MPP sessions — deposit upfront, stream vouchers per minute):
-- Start/restart machine: $0.005/min ($0.30/hr)
+- Start/restart machine or droplet: $0.005/min ($0.30/hr)
 - Machines auto-stop when deposit is consumed
 
 Free (wallet auth only):
-- List, get, stop, destroy, suspend machines
+- List, get, stop, destroy, suspend machines/droplets
 - Machine events, processes, billing info, wait for state
 - List, get, delete volumes
 - Create/delete apps, list IPs
 
 ## Endpoints
 
-### Machines
+### Fly.io Machines
 
 #### GET /api/machines — List your machines (free)
 - Protection: Wallet auth (free)
@@ -124,7 +125,7 @@ Free (wallet auth only):
 - Protection: Wallet auth (free, must own machine)
 - Returns: list of running processes
 
-### Volumes
+### Fly.io Volumes
 
 #### GET /api/volumes — List your volumes (free)
 - Protection: Wallet auth (free)
@@ -153,7 +154,7 @@ Free (wallet auth only):
 - "size_gb" must be larger than current size, max 500
 - Returns: volume object with updated size
 
-### Apps
+### Fly.io Apps
 
 #### POST /api/apps — Create an app (free)
 - Protection: Wallet auth (free)
@@ -175,6 +176,40 @@ Free (wallet auth only):
 - "region" is optional
 - Returns: { "id": "string", "address": "string", "type": "shared_v4", "region": "string", "created_at": "ISO date" }
 
+### DigitalOcean Droplets
+
+#### POST /api/do/droplets — Create a droplet ($0.10)
+- Protection: x402/MPP payment ($0.10 USDC on Tempo)
+- Body: { "name": "my-droplet", "region": "nyc3", "size": "s-1vcpu-1gb", "image": "ubuntu-22-04-x64" }
+- "name", "region", "size", "image" are required
+- Optional: "ssh_keys", "backups", "ipv6", "monitoring", "tags", "user_data", "vpc_uuid", "volumes", "with_droplet_agent"
+- Returns: { "id": number, "name": "string", "status": "new", "region": {...}, "size": {...}, "image": {...}, "networks": {...} }
+
+#### GET /api/do/droplets — List your droplets (free)
+- Protection: Wallet auth (free)
+- Returns droplets owned by the authenticated wallet
+- Returns: [{ "id": number, "name": "string", "status": "string", "region": {...}, "size_slug": "string", "networks": {...} }]
+
+#### GET /api/do/droplets/:id — Get droplet details (free)
+- Protection: Wallet auth (free, must own droplet)
+- Returns: droplet object with full details
+
+#### POST /api/do/droplets/:id/start — Power on a droplet ($0.005/min session)
+- Protection: x402/MPP session ($0.005/min USDC on Tempo, suggested deposit $0.30 for 1 hour)
+- Must own the droplet
+- Powers on the droplet and opens a billing session
+- Returns: { "ok": true, "billing": "session", "rate": "$0.005/min" }
+
+#### POST /api/do/droplets/:id/stop — Power off a droplet (free)
+- Protection: Wallet auth (free, must own droplet)
+- Powers off the droplet and ends the billing session
+- Returns: { "ok": true }
+
+#### DELETE /api/do/droplets/:id — Destroy a droplet (free)
+- Protection: Wallet auth (free, must own droplet)
+- Permanently deletes the droplet and ends any billing session
+- Returns: { "ok": true }
+
 ### System
 
 #### GET /health — Health check (free, no auth)
@@ -183,7 +218,9 @@ Free (wallet auth only):
 #### GET /llms.txt — This file (free, no auth)
 - Returns this document as text/plain
 
-## Typical Workflow
+## Typical Workflows
+
+### Fly.io Machine Workflow
 
 1. Create a machine: POST /api/machines with image and config ($0.10)
 2. Start the machine: POST /api/machines/:id/start (opens $0.005/min session)
@@ -193,11 +230,19 @@ Free (wallet auth only):
 6. Stop when done: POST /api/machines/:id/stop (ends billing)
 7. Destroy if no longer needed: DELETE /api/machines/:id
 
+### DigitalOcean Droplet Workflow
+
+1. Create a droplet: POST /api/do/droplets with name, region, size, image ($0.10)
+2. Power on: POST /api/do/droplets/:id/start (opens $0.005/min session)
+3. Use it via SSH or your application
+4. Power off: POST /api/do/droplets/:id/stop (ends billing)
+5. Destroy if no longer needed: DELETE /api/do/droplets/:id
+
 ## Error Responses
 
 All errors return JSON: { "error": "message", "code": "ERROR_CODE", "details": [...] }
 
-Error codes: AUTH_REQUIRED (401), FORBIDDEN (403), NOT_FOUND (404), VALIDATION_ERROR (400), FLY_API_ERROR (various), INTERNAL_ERROR (500)
+Error codes: AUTH_REQUIRED (401), FORBIDDEN (403), NOT_FOUND (404), VALIDATION_ERROR (400), FLY_API_ERROR (various), DO_API_ERROR (various), INTERNAL_ERROR (500)
 
 ## Agent Integration
 

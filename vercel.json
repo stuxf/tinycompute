@@ -1,0 +1,12 @@
+{
+  "buildCommand": "pnpm build",
+  "installCommand": "pnpm install",
+  "functions": {
+    "api/index.ts": {
+      "includeFiles": "public/**"
+    }
+  },
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/api" }
+  ]
+}

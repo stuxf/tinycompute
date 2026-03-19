@@ -15,6 +15,7 @@ const DATA_FILE = join(DATA_DIR, "ownership.json");
 interface OwnershipData {
   machines: Record<string, string>;
   volumes: Record<string, string>;
+  droplets: Record<string, string>;
 }
 
 function loadData(): OwnershipData {
@@ -22,13 +23,14 @@ function loadData(): OwnershipData {
     mkdirSync(DATA_DIR, { recursive: true });
   }
   if (!existsSync(DATA_FILE)) {
-    return { machines: {}, volumes: {} };
+    return { machines: {}, volumes: {}, droplets: {} };
   }
   try {
     const raw = readFileSync(DATA_FILE, "utf-8");
-    return JSON.parse(raw) as OwnershipData;
+    const parsed = JSON.parse(raw) as Partial<OwnershipData>;
+    return { machines: parsed.machines ?? {}, volumes: parsed.volumes ?? {}, droplets: parsed.droplets ?? {} };
   } catch {
-    return { machines: {}, volumes: {} };
+    return { machines: {}, volumes: {}, droplets: {} };
   }
 }
 
@@ -57,12 +59,29 @@ export function getVolumeOwner(volumeId: string): string | undefined {
   return data.volumes[volumeId];
 }
 
+export function setDropletOwner(dropletId: string, wallet: string): void {
+  data.droplets[dropletId] = wallet.toLowerCase();
+  saveData(data);
+}
+
+export function listOwnedDroplets(wallet: string): string[] {
+  const w = wallet.toLowerCase();
+  return Object.entries(data.droplets)
+    .filter(([, owner]) => owner === w)
+    .map(([id]) => id);
+}
+
+export function removeDroplet(dropletId: string): void {
+  delete data.droplets[dropletId];
+  saveData(data);
+}
+
 export function assertOwnership(
   resourceId: string,
   wallet: string,
-  type: "machine" | "volume",
+  type: "machine" | "volume" | "droplet",
 ): void {
-  const store = type === "machine" ? data.machines : data.volumes;
+  const store = type === "machine" ? data.machines : type === "volume" ? data.volumes : data.droplets;
   const owner = store[resourceId];
   if (!owner) {
     throw new Error(`${type} ${resourceId} not found in registry`);

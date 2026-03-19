@@ -11,6 +11,7 @@ import { Hono } from "hono";
 import { serve } from "@hono/node-server";
 import { Credential } from "mppx";
 import { FlyClient, FlyApiError } from "./fly/index.js";
+import { DOClient, DOApiError } from "./do/index.js";
 import { mppx } from "./mpp.js";
 import {
   validateCreateMachine,
@@ -23,11 +24,14 @@ import type { ValidationError } from "./validation.js";
 import {
   setMachineOwner,
   setVolumeOwner,
+  setDropletOwner,
   assertOwnership,
   listOwnedMachines,
   listOwnedVolumes,
+  listOwnedDroplets,
   removeMachine,
   removeVolume,
+  removeDroplet,
 } from "./ownership.js";
 import {
   startSession,
@@ -41,6 +45,8 @@ import type { Context, Next } from "hono";
 // --- Config ---
 const FLY_TOKEN = process.env.FLY_API_TOKEN;
 const FLY_APP = process.env.FLY_APP_NAME;
+const DO_TOKEN = process.env.DO_API_TOKEN;
+const DO_PROJECT_ID = process.env.DO_PROJECT_ID ?? "6952f275-0062-4c92-a8a7-dc2ca86cf195";
 const PORT = Number(process.env.PORT ?? 3000);
 
 if (!FLY_TOKEN || !FLY_APP) {
@@ -48,7 +54,13 @@ if (!FLY_TOKEN || !FLY_APP) {
   process.exit(1);
 }
 
+if (!DO_TOKEN) {
+  console.error("Missing DO_API_TOKEN env var");
+  process.exit(1);
+}
+
 const fly = new FlyClient({ token: FLY_TOKEN, appName: FLY_APP });
+const doClient = new DOClient({ token: DO_TOKEN });
 
 // --- Standardized error responses ---
 
@@ -113,7 +125,7 @@ function requireWallet(c: Context): string {
 function requireOwnership(
   c: Context,
   paramName: string,
-  type: "machine" | "volume",
+  type: "machine" | "volume" | "droplet",
 ): { wallet: string; resourceId: string } {
   const wallet = requireWallet(c);
   const resourceId = c.req.param(paramName);
@@ -140,6 +152,12 @@ function withErrorHandling(
         const code = err.statusCode === 401 ? "AUTH_REQUIRED"
           : err.statusCode === 403 ? "FORBIDDEN"
           : "FLY_API_ERROR";
+        return errorResponse(c, err.statusCode, err.message, code);
+      }
+      if (err instanceof DOApiError) {
+        const code = err.statusCode === 401 ? "AUTH_REQUIRED"
+          : err.statusCode === 403 ? "FORBIDDEN"
+          : "DO_API_ERROR";
         return errorResponse(c, err.statusCode, err.message, code);
       }
       const message = err instanceof Error ? err.message : "Unknown error";
@@ -382,12 +400,77 @@ app.post("/api/apps/:name/ips",
   }),
 );
 
-// --- Lifecycle ---
-startBillingEnforcement(fly.machines);
-process.on("SIGTERM", () => { stopBillingEnforcement(); process.exit(0); });
-process.on("SIGINT", () => { stopBillingEnforcement(); process.exit(0); });
+// =====================
+// DigitalOcean Droplets
+// =====================
 
-// --- Start ---
-serve({ fetch: app.fetch, port: PORT }, (info) => {
-  console.log(`Server running on http://localhost:${info.port}`);
-});
+// --- Droplets: Create (charge) ---
+app.post("/api/do/droplets",
+  mppx.charge({ amount: PRICES.MACHINE_SETUP, description: "Droplet setup fee" }),
+  withErrorHandling(async (c: Context) => {
+    const body = await c.req.json();
+    const droplet = await doClient.droplets.create(body);
+    const wallet = getPayerWallet(c);
+    if (wallet) setDropletOwner(String(droplet.id), wallet);
+    return c.json(droplet, 201);
+  }),
+);
+
+// --- Droplets: List (free) ---
+app.get("/api/do/droplets", withErrorHandling(async (c: Context) => {
+  const wallet = requireWallet(c);
+  const ownedIds = listOwnedDroplets(wallet);
+  if (ownedIds.length === 0) return c.json([]);
+  const { droplets } = await doClient.droplets.list();
+  return c.json(droplets.filter((d) => ownedIds.includes(String(d.id))));
+}));
+
+// --- Droplets: Get (free) ---
+app.get("/api/do/droplets/:id", withErrorHandling(async (c: Context) => {
+  const { resourceId } = requireOwnership(c, "id", "droplet");
+  return c.json(await doClient.droplets.get(Number(resourceId)));
+}));
+
+// --- Droplets: Start / Power On (session) ---
+app.post("/api/do/droplets/:id/start",
+  mppx.session({ amount: PRICES.SESSION_PER_MIN, unitType: "minute", suggestedDeposit: PRICES.SESSION_DEPOSIT }),
+  withErrorHandling(async (c: Context) => {
+    const { wallet, resourceId } = requireOwnership(c, "id", "droplet");
+    await doClient.droplets.powerOn(Number(resourceId));
+    registerBillingSession(c, resourceId, wallet);
+    return c.json({ ok: true, billing: "session", rate: "$0.005/min" });
+  }),
+);
+
+// --- Droplets: Stop / Power Off (free) ---
+app.post("/api/do/droplets/:id/stop", withErrorHandling(async (c: Context) => {
+  const { resourceId } = requireOwnership(c, "id", "droplet");
+  await doClient.droplets.powerOff(Number(resourceId));
+  stopSession(resourceId);
+  return c.json({ ok: true });
+}));
+
+// --- Droplets: Destroy (free) ---
+app.delete("/api/do/droplets/:id", withErrorHandling(async (c: Context) => {
+  const { resourceId } = requireOwnership(c, "id", "droplet");
+  await doClient.droplets.delete(Number(resourceId));
+  stopSession(resourceId);
+  removeDroplet(resourceId);
+  return c.json({ ok: true });
+}));
+
+// --- Export for Vercel ---
+export default app;
+
+// --- Lifecycle (skip in serverless) ---
+const isVercel = !!process.env.VERCEL;
+
+if (!isVercel) {
+  startBillingEnforcement(fly.machines);
+  process.on("SIGTERM", () => { stopBillingEnforcement(); process.exit(0); });
+  process.on("SIGINT", () => { stopBillingEnforcement(); process.exit(0); });
+
+  serve({ fetch: app.fetch, port: PORT }, (info) => {
+    console.log(`Server running on http://localhost:${info.port}`);
+  });
+}
