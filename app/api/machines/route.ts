@@ -22,7 +22,9 @@ export const GET = mppx.charge({ amount: PRICES.AUTH, description: "List machine
 
 // --- Create machine (dynamic charge based on size) ---
 export async function POST(req: Request) {
-  const body = await req.json();
+  // Clone request before reading body — mppx needs to read it again
+  const cloned = req.clone();
+  const body = await cloned.json();
   const v = validateCreateMachine(body);
   if (!v.ok) return Response.json(
     { error: "Validation failed", code: "VALIDATION_ERROR", details: v.errors },
