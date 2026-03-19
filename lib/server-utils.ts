@@ -3,8 +3,9 @@
  * Mirrors the helpers from src/server.ts but adapted for Next.js Request/Response.
  */
 
-import { Credential } from "mppx";
+import { Credential, Store } from "mppx";
 import { Mppx, tempo } from "mppx/nextjs";
+import { Redis } from "@upstash/redis";
 import { FlyClient, FlyApiError } from "./fly/index";
 import { DOClient, DOApiError } from "./do/index";
 import { VercelClient, VercelApiError } from "./vercel/index";
@@ -63,12 +64,27 @@ if (!RECIPIENT) {
   console.warn("MPP_RECIPIENT not set — MPP middleware will not function");
 }
 
+// --- Session store (Upstash Redis for persistent channel state across serverless invocations) ---
+const UPSTASH_URL = process.env.UPSTASH_REDIS_REST_URL;
+const UPSTASH_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
+
+let sessionStore: Store.Store | undefined;
+if (UPSTASH_URL && UPSTASH_TOKEN) {
+  const storeRedis = new Redis({ url: UPSTASH_URL, token: UPSTASH_TOKEN });
+  sessionStore = Store.upstash({
+    get: (key: string) => storeRedis.get(key),
+    set: (key: string, value: unknown) => storeRedis.set(key, value),
+    del: (key: string) => storeRedis.del(key),
+  });
+}
+
 // @ts-ignore - mppx has complex internal types
 export const mppx = Mppx.create({
   methods: [
     tempo({
       currency: USDC,
       recipient: RECIPIENT as `0x${string}`,
+      ...(sessionStore ? { store: sessionStore } : {}),
     }),
   ],
 });
