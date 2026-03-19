@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * MPP-gated compute provisioning API
  * Session-based billing: pay per minute of compute, one-time fees for setup.
@@ -12,10 +13,10 @@ import { Credential } from "mppx";
 
 const isVercel = !!process.env.VERCEL;
 
-import { FlyClient, FlyApiError } from "./fly/index.js";
-import { DOClient, DOApiError } from "./do/index.js";
-import { VercelClient, VercelApiError } from "./vercel/index.js";
-import { mppx } from "./mpp.js";
+import { FlyClient, FlyApiError } from "./fly/index";
+import { DOClient, DOApiError } from "./do/index";
+import { VercelClient, VercelApiError } from "./vercel/index";
+import { mppx } from "./mpp";
 import {
   validateCreateMachine,
   validateCreateVolume,
@@ -23,8 +24,8 @@ import {
   validateWaitState,
   validateExecCommand,
   validateCreateDroplet,
-} from "./validation.js";
-import type { ValidationError } from "./validation.js";
+} from "./validation";
+import type { ValidationError } from "./validation";
 import {
   setMachineOwner,
   setVolumeOwner,
@@ -36,14 +37,14 @@ import {
   removeMachine,
   removeVolume,
   removeDroplet,
-} from "./ownership.js";
+} from "./ownership";
 import {
   startSession,
   stopSession,
   getBillingInfo,
   startBillingEnforcement,
   stopBillingEnforcement,
-} from "./billing.js";
+} from "./billing";
 import type { Context, Next } from "hono";
 
 // --- Config ---

@@ -1,8 +1,11 @@
 node_modules/
 dist/
+.next/
 .env
 *.log
 .DS_Store
 data/
 .vercel
 .env*.local
+next-env.d.ts
+api/handler.mjs
