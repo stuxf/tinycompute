@@ -14,6 +14,7 @@ const isVercel = !!process.env.VERCEL;
 
 import { FlyClient, FlyApiError } from "./fly/index.js";
 import { DOClient, DOApiError } from "./do/index.js";
+import { VercelClient, VercelApiError } from "./vercel/index.js";
 import { mppx } from "./mpp.js";
 import {
   validateCreateMachine,
@@ -50,6 +51,7 @@ const FLY_TOKEN = process.env.FLY_API_TOKEN;
 const FLY_APP = process.env.FLY_APP_NAME;
 const DO_TOKEN = process.env.DO_API_TOKEN;
 const DO_PROJECT_ID = process.env.DO_PROJECT_ID ?? "6952f275-0062-4c92-a8a7-dc2ca86cf195";
+const VERCEL_API_TOKEN = process.env.VERCEL_API_TOKEN;
 const PORT = Number(process.env.PORT ?? 3000);
 
 if (!FLY_TOKEN || !FLY_APP) {
@@ -66,8 +68,16 @@ if (!DO_TOKEN) {
   }
 }
 
+if (!VERCEL_API_TOKEN) {
+  if (!isVercel) {
+    console.error("Missing VERCEL_API_TOKEN env var");
+    process.exit(1);
+  }
+}
+
 const fly = new FlyClient({ token: FLY_TOKEN!, appName: FLY_APP! });
 const doClient = new DOClient({ token: DO_TOKEN!, projectId: DO_PROJECT_ID });
+const vercelClient = new VercelClient({ token: VERCEL_API_TOKEN! });
 
 // --- Standardized error responses ---
 
@@ -183,6 +193,12 @@ function withErrorHandling(
         const code = err.statusCode === 401 ? "AUTH_REQUIRED"
           : err.statusCode === 403 ? "FORBIDDEN"
           : "DO_API_ERROR";
+        return errorResponse(c, err.statusCode, err.message, code);
+      }
+      if (err instanceof VercelApiError) {
+        const code = err.statusCode === 401 ? "AUTH_REQUIRED"
+          : err.statusCode === 403 ? "FORBIDDEN"
+          : "VERCEL_API_ERROR";
         return errorResponse(c, err.statusCode, err.message, code);
       }
       const message = err instanceof Error ? err.message : "Unknown error";
@@ -495,8 +511,8 @@ if (!isVercel) {
     process.on("SIGTERM", () => { stopBillingEnforcement(); process.exit(0); });
     process.on("SIGINT", () => { stopBillingEnforcement(); process.exit(0); });
 
-    serve({ fetch: app.fetch, port: PORT }, (info) => {
-      console.log(`Server running on http://localhost:${info.port}`);
+    serve({ fetch: app.fetch, port: PORT, hostname: "0.0.0.0" }, (info) => {
+      console.log(`Server running on http://0.0.0.0:${info.port}`);
     });
   });
 }
