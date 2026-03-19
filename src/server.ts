@@ -8,8 +8,10 @@ import { readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Hono } from "hono";
-import { serve } from "@hono/node-server";
 import { Credential } from "mppx";
+
+const isVercel = !!process.env.VERCEL;
+
 import { FlyClient, FlyApiError } from "./fly/index.js";
 import { DOClient, DOApiError } from "./do/index.js";
 import { mppx } from "./mpp.js";
@@ -51,17 +53,21 @@ const DO_PROJECT_ID = process.env.DO_PROJECT_ID ?? "6952f275-0062-4c92-a8a7-dc2c
 const PORT = Number(process.env.PORT ?? 3000);
 
 if (!FLY_TOKEN || !FLY_APP) {
-  console.error("Missing FLY_API_TOKEN or FLY_APP_NAME env vars");
-  process.exit(1);
+  if (!isVercel) {
+    console.error("Missing FLY_API_TOKEN or FLY_APP_NAME env vars");
+    process.exit(1);
+  }
 }
 
 if (!DO_TOKEN) {
-  console.error("Missing DO_API_TOKEN env var");
-  process.exit(1);
+  if (!isVercel) {
+    console.error("Missing DO_API_TOKEN env var");
+    process.exit(1);
+  }
 }
 
-const fly = new FlyClient({ token: FLY_TOKEN, appName: FLY_APP });
-const doClient = new DOClient({ token: DO_TOKEN, projectId: DO_PROJECT_ID });
+const fly = new FlyClient({ token: FLY_TOKEN!, appName: FLY_APP! });
+const doClient = new DOClient({ token: DO_TOKEN!, projectId: DO_PROJECT_ID });
 
 // --- Standardized error responses ---
 
@@ -130,14 +136,14 @@ function requireWallet(c: Context): string {
 }
 
 /** Require wallet auth + resource ownership — returns { wallet, resourceId } or throws */
-function requireOwnership(
+async function requireOwnership(
   c: Context,
   paramName: string,
   type: "machine" | "volume" | "droplet",
-): { wallet: string; resourceId: string } {
+): Promise<{ wallet: string; resourceId: string }> {
   const wallet = requireWallet(c);
   const resourceId = param(c, paramName);
-  assertOwnership(resourceId, wallet, type);
+  await assertOwnership(resourceId, wallet, type);
   return { wallet, resourceId };
 }
 
@@ -195,11 +201,23 @@ const app = new Hono();
 
 // --- Static assets ---
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const publicDir = resolve(__dirname, "..", "public");
-const landingHtml = readFileSync(resolve(publicDir, "index.html"), "utf-8");
-const llmsTxt = readFileSync(resolve(publicDir, "llms.txt"), "utf-8");
+// On Vercel, includeFiles copies public/** relative to the function entry (api/index.ts).
+// The bundled output runs from a flat directory, so public/ is a sibling of the bundle.
+// Locally (dist/), public/ is one level up from __dirname.
+const publicDir = isVercel
+  ? resolve(process.cwd(), "public")
+  : resolve(__dirname, "..", "public");
 
-app.get("/", (c: Context) => c.html(landingHtml));
+let landingHtml = "";
+let llmsTxt = "";
+try {
+  landingHtml = readFileSync(resolve(publicDir, "index.html"), "utf-8");
+  llmsTxt = readFileSync(resolve(publicDir, "llms.txt"), "utf-8");
+} catch {
+  console.warn("Could not load static assets from", publicDir);
+}
+
+app.get("/", (c: Context) => c.html(landingHtml || "<h1>tinycompute</h1>"));
 app.get("/llms.txt", (c: Context) => c.text(llmsTxt));
 
 // --- Health (free) ---
@@ -208,7 +226,7 @@ app.get("/health", (c: Context) => c.json({ ok: true }));
 // --- Machines: List (free) ---
 app.get("/api/machines", withErrorHandling(async (c: Context) => {
   const wallet = requireWallet(c);
-  const ownedIds = listOwnedMachines(wallet);
+  const ownedIds = await listOwnedMachines(wallet);
   if (ownedIds.length === 0) return c.json([]);
   const allMachines = await fly.machines.list();
   return c.json(allMachines.filter((m) => ownedIds.includes(m.id)));
@@ -216,7 +234,7 @@ app.get("/api/machines", withErrorHandling(async (c: Context) => {
 
 // --- Machines: Get (free) ---
 app.get("/api/machines/:id", withErrorHandling(async (c: Context) => {
-  const { resourceId } = requireOwnership(c, "id", "machine");
+  const { resourceId } = await requireOwnership(c, "id", "machine");
   return c.json(await fly.machines.get(resourceId));
 }));
 
@@ -227,7 +245,7 @@ app.post("/api/machines",
   withErrorHandling(async (c: Context) => {
     const machine = await fly.machines.create(c.get("validatedBody"));
     const wallet = getPayerWallet(c);
-    if (wallet) setMachineOwner(machine.id, wallet);
+    if (wallet) await setMachineOwner(machine.id, wallet);
     return c.json(machine, 201);
   }),
 );
@@ -236,7 +254,7 @@ app.post("/api/machines",
 app.post("/api/machines/:id/start",
   mppx.session({ amount: PRICES.SESSION_PER_MIN, unitType: "minute", suggestedDeposit: PRICES.SESSION_DEPOSIT }),
   withErrorHandling(async (c: Context) => {
-    const { wallet, resourceId } = requireOwnership(c, "id", "machine");
+    const { wallet, resourceId } = await requireOwnership(c, "id", "machine");
     await fly.machines.start(resourceId);
     registerBillingSession(c, resourceId, wallet);
     return c.json({ ok: true, billing: "session", rate: "$0.005/min" });
@@ -245,7 +263,7 @@ app.post("/api/machines/:id/start",
 
 // --- Machines: Stop (free) ---
 app.post("/api/machines/:id/stop", withErrorHandling(async (c: Context) => {
-  const { resourceId } = requireOwnership(c, "id", "machine");
+  const { resourceId } = await requireOwnership(c, "id", "machine");
   await fly.machines.stop(resourceId);
   stopSession(resourceId);
   return c.json({ ok: true });
@@ -255,7 +273,7 @@ app.post("/api/machines/:id/stop", withErrorHandling(async (c: Context) => {
 app.post("/api/machines/:id/restart",
   mppx.session({ amount: PRICES.SESSION_PER_MIN, unitType: "minute", suggestedDeposit: PRICES.SESSION_DEPOSIT }),
   withErrorHandling(async (c: Context) => {
-    const { wallet, resourceId } = requireOwnership(c, "id", "machine");
+    const { wallet, resourceId } = await requireOwnership(c, "id", "machine");
     await fly.machines.restart(resourceId);
     stopSession(resourceId);
     registerBillingSession(c, resourceId, wallet);
@@ -265,17 +283,17 @@ app.post("/api/machines/:id/restart",
 
 // --- Machines: Destroy (free) ---
 app.delete("/api/machines/:id", withErrorHandling(async (c: Context) => {
-  const { resourceId } = requireOwnership(c, "id", "machine");
+  const { resourceId } = await requireOwnership(c, "id", "machine");
   const force = c.req.query("force") === "true";
   await fly.machines.destroy(resourceId, force);
   stopSession(resourceId);
-  removeMachine(resourceId);
+  await removeMachine(resourceId);
   return c.json({ ok: true });
 }));
 
 // --- Machines: Billing info (free) ---
 app.get("/api/machines/:id/billing", withErrorHandling(async (c: Context) => {
-  const { resourceId } = requireOwnership(c, "id", "machine");
+  const { resourceId } = await requireOwnership(c, "id", "machine");
   const info = getBillingInfo(resourceId);
   if (!info) return errorResponse(c, 404, "No active billing session", "NOT_FOUND");
   return c.json(info);
@@ -283,7 +301,7 @@ app.get("/api/machines/:id/billing", withErrorHandling(async (c: Context) => {
 
 // --- Machines: Wait for state (free) ---
 app.post("/api/machines/:id/wait", withErrorHandling(async (c: Context) => {
-  const { resourceId } = requireOwnership(c, "id", "machine");
+  const { resourceId } = await requireOwnership(c, "id", "machine");
   const state = c.req.query("state") ?? "started";
   const sv = validateWaitState(state);
   if (!sv.ok) return validationErrorResponse(c, sv.errors);
@@ -293,7 +311,7 @@ app.post("/api/machines/:id/wait", withErrorHandling(async (c: Context) => {
 
 // --- Machines: Events (free) ---
 app.get("/api/machines/:id/events", withErrorHandling(async (c: Context) => {
-  const { resourceId } = requireOwnership(c, "id", "machine");
+  const { resourceId } = await requireOwnership(c, "id", "machine");
   return c.json(await fly.machines.events(resourceId));
 }));
 
@@ -308,7 +326,7 @@ app.post("/api/machines/:id/exec",
   },
   mppx.charge({ amount: PRICES.EXEC_COMMAND, description: "Execute command in machine" }),
   withErrorHandling(async (c: Context) => {
-    const { resourceId } = requireOwnership(c, "id", "machine");
+    const { resourceId } = await requireOwnership(c, "id", "machine");
     const { command, timeout } = c.get("validatedBody");
     return c.json(await fly.machines.exec(resourceId, command, timeout));
   }),
@@ -316,14 +334,14 @@ app.post("/api/machines/:id/exec",
 
 // --- Machines: Suspend (free) ---
 app.post("/api/machines/:id/suspend", withErrorHandling(async (c: Context) => {
-  const { resourceId } = requireOwnership(c, "id", "machine");
+  const { resourceId } = await requireOwnership(c, "id", "machine");
   await fly.machines.suspend(resourceId);
   return c.json({ ok: true });
 }));
 
 // --- Machines: Processes (free) ---
 app.get("/api/machines/:id/ps", withErrorHandling(async (c: Context) => {
-  const { resourceId } = requireOwnership(c, "id", "machine");
+  const { resourceId } = await requireOwnership(c, "id", "machine");
   return c.json(await fly.machines.ps(resourceId));
 }));
 
@@ -334,7 +352,7 @@ app.post("/api/volumes",
   withErrorHandling(async (c: Context) => {
     const volume = await fly.volumes.create(c.get("validatedBody"));
     const wallet = getPayerWallet(c);
-    if (wallet) setVolumeOwner(volume.id, wallet);
+    if (wallet) await setVolumeOwner(volume.id, wallet);
     return c.json(volume, 201);
   }),
 );
@@ -342,7 +360,7 @@ app.post("/api/volumes",
 // --- Volumes: List (free) ---
 app.get("/api/volumes", withErrorHandling(async (c: Context) => {
   const wallet = requireWallet(c);
-  const ownedIds = listOwnedVolumes(wallet);
+  const ownedIds = await listOwnedVolumes(wallet);
   if (ownedIds.length === 0) return c.json([]);
   const allVolumes = await fly.volumes.list();
   return c.json(allVolumes.filter((v) => ownedIds.includes(v.id)));
@@ -350,15 +368,15 @@ app.get("/api/volumes", withErrorHandling(async (c: Context) => {
 
 // --- Volumes: Get (free) ---
 app.get("/api/volumes/:id", withErrorHandling(async (c: Context) => {
-  const { resourceId } = requireOwnership(c, "id", "volume");
+  const { resourceId } = await requireOwnership(c, "id", "volume");
   return c.json(await fly.volumes.get(resourceId));
 }));
 
 // --- Volumes: Delete (free) ---
 app.delete("/api/volumes/:id", withErrorHandling(async (c: Context) => {
-  const { resourceId } = requireOwnership(c, "id", "volume");
+  const { resourceId } = await requireOwnership(c, "id", "volume");
   await fly.volumes.delete(resourceId);
-  removeVolume(resourceId);
+  await removeVolume(resourceId);
   return c.json({ ok: true });
 }));
 
@@ -373,7 +391,7 @@ app.put("/api/volumes/:id/extend",
   },
   mppx.charge({ amount: PRICES.VOLUME_EXTEND, description: "Extend storage volume" }),
   withErrorHandling(async (c: Context) => {
-    const { resourceId } = requireOwnership(c, "id", "volume");
+    const { resourceId } = await requireOwnership(c, "id", "volume");
     const { size_gb } = c.get("validatedBody");
     return c.json(await fly.volumes.extend(resourceId, size_gb));
   }),
@@ -419,7 +437,7 @@ app.post("/api/do/droplets",
     const body = c.get("validatedBody");
     const droplet = await doClient.droplets.create(body);
     const wallet = getPayerWallet(c);
-    if (wallet) setDropletOwner(String(droplet.id), wallet);
+    if (wallet) await setDropletOwner(String(droplet.id), wallet);
     return c.json(droplet, 201);
   }),
 );
@@ -427,7 +445,7 @@ app.post("/api/do/droplets",
 // --- Droplets: List (free) ---
 app.get("/api/do/droplets", withErrorHandling(async (c: Context) => {
   const wallet = requireWallet(c);
-  const ownedIds = listOwnedDroplets(wallet);
+  const ownedIds = await listOwnedDroplets(wallet);
   if (ownedIds.length === 0) return c.json([]);
   const { droplets } = await doClient.droplets.list();
   return c.json(droplets.filter((d) => ownedIds.includes(String(d.id))));
@@ -435,7 +453,7 @@ app.get("/api/do/droplets", withErrorHandling(async (c: Context) => {
 
 // --- Droplets: Get (free) ---
 app.get("/api/do/droplets/:id", withErrorHandling(async (c: Context) => {
-  const { resourceId } = requireOwnership(c, "id", "droplet");
+  const { resourceId } = await requireOwnership(c, "id", "droplet");
   return c.json(await doClient.droplets.get(Number(resourceId)));
 }));
 
@@ -443,7 +461,7 @@ app.get("/api/do/droplets/:id", withErrorHandling(async (c: Context) => {
 app.post("/api/do/droplets/:id/start",
   mppx.session({ amount: PRICES.SESSION_PER_MIN, unitType: "minute", suggestedDeposit: PRICES.SESSION_DEPOSIT }),
   withErrorHandling(async (c: Context) => {
-    const { wallet, resourceId } = requireOwnership(c, "id", "droplet");
+    const { wallet, resourceId } = await requireOwnership(c, "id", "droplet");
     await doClient.droplets.powerOn(Number(resourceId));
     registerBillingSession(c, resourceId, wallet);
     return c.json({ ok: true, billing: "session", rate: "$0.005/min" });
@@ -452,7 +470,7 @@ app.post("/api/do/droplets/:id/start",
 
 // --- Droplets: Stop / Power Off (free) ---
 app.post("/api/do/droplets/:id/stop", withErrorHandling(async (c: Context) => {
-  const { resourceId } = requireOwnership(c, "id", "droplet");
+  const { resourceId } = await requireOwnership(c, "id", "droplet");
   await doClient.droplets.powerOff(Number(resourceId));
   stopSession(resourceId);
   return c.json({ ok: true });
@@ -460,10 +478,10 @@ app.post("/api/do/droplets/:id/stop", withErrorHandling(async (c: Context) => {
 
 // --- Droplets: Destroy (free) ---
 app.delete("/api/do/droplets/:id", withErrorHandling(async (c: Context) => {
-  const { resourceId } = requireOwnership(c, "id", "droplet");
+  const { resourceId } = await requireOwnership(c, "id", "droplet");
   await doClient.droplets.delete(Number(resourceId));
   stopSession(resourceId);
-  removeDroplet(resourceId);
+  await removeDroplet(resourceId);
   return c.json({ ok: true });
 }));
 
@@ -471,14 +489,14 @@ app.delete("/api/do/droplets/:id", withErrorHandling(async (c: Context) => {
 export default app;
 
 // --- Lifecycle (skip in serverless) ---
-const isVercel = !!process.env.VERCEL;
-
 if (!isVercel) {
-  startBillingEnforcement(fly.machines);
-  process.on("SIGTERM", () => { stopBillingEnforcement(); process.exit(0); });
-  process.on("SIGINT", () => { stopBillingEnforcement(); process.exit(0); });
+  import("dotenv/config").then(() => import("@hono/node-server")).then(({ serve }) => {
+    startBillingEnforcement(fly.machines);
+    process.on("SIGTERM", () => { stopBillingEnforcement(); process.exit(0); });
+    process.on("SIGINT", () => { stopBillingEnforcement(); process.exit(0); });
 
-  serve({ fetch: app.fetch, port: PORT }, (info) => {
-    console.log(`Server running on http://localhost:${info.port}`);
+    serve({ fetch: app.fetch, port: PORT }, (info) => {
+      console.log(`Server running on http://localhost:${info.port}`);
+    });
   });
 }

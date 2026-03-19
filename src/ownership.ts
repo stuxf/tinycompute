@@ -1,12 +1,33 @@
 /**
  * Ownership registry
- * Maps Fly machines/volumes to the wallet address that created them.
- * Persisted to data/ownership.json — survives restarts.
+ * Maps Fly machines/volumes and DO droplets to the wallet address that created them.
+ *
+ * When UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN are set, data lives in
+ * Upstash Redis.  Otherwise falls back to the local-file approach (data/ownership.json)
+ * so local dev works without Redis.
  */
 
+import { Redis } from "@upstash/redis";
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+
+// ---------------------------------------------------------------------------
+// Upstash Redis client (lazy, only created when env vars are present)
+// ---------------------------------------------------------------------------
+
+const UPSTASH_URL = process.env.UPSTASH_REDIS_REST_URL;
+const UPSTASH_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
+const useRedis = !!(UPSTASH_URL && UPSTASH_TOKEN);
+
+let redis: Redis | undefined;
+if (useRedis) {
+  redis = new Redis({ url: UPSTASH_URL!, token: UPSTASH_TOKEN! });
+}
+
+// ---------------------------------------------------------------------------
+// File-based fallback (local dev)
+// ---------------------------------------------------------------------------
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = join(__dirname, "..", "data");
@@ -38,51 +59,117 @@ function saveData(data: OwnershipData): void {
   writeFileSync(DATA_FILE, JSON.stringify(data, null, 2) + "\n", "utf-8");
 }
 
-// Load once at startup
-let data = loadData();
-
-export function setMachineOwner(machineId: string, wallet: string): void {
-  data.machines[machineId] = wallet.toLowerCase();
-  saveData(data);
+let fileData: OwnershipData | undefined;
+function getFileData(): OwnershipData {
+  if (!fileData) fileData = loadData();
+  return fileData;
 }
 
-export function getMachineOwner(machineId: string): string | undefined {
-  return data.machines[machineId];
+// ---------------------------------------------------------------------------
+// Key helpers
+// ---------------------------------------------------------------------------
+
+type ResourceType = "machine" | "volume" | "droplet";
+
+function ownerKey(type: ResourceType, id: string): string {
+  return `owner:${type}:${id}`;
 }
 
-export function setVolumeOwner(volumeId: string, wallet: string): void {
-  data.volumes[volumeId] = wallet.toLowerCase();
-  saveData(data);
+function ownedSetKey(wallet: string, type: ResourceType): string {
+  return `owned:${wallet}:${type}s`;
 }
 
-export function getVolumeOwner(volumeId: string): string | undefined {
-  return data.volumes[volumeId];
+function storeForType(data: OwnershipData, type: ResourceType): Record<string, string> {
+  return type === "machine" ? data.machines : type === "volume" ? data.volumes : data.droplets;
 }
 
-export function setDropletOwner(dropletId: string, wallet: string): void {
-  data.droplets[dropletId] = wallet.toLowerCase();
-  saveData(data);
-}
+// ---------------------------------------------------------------------------
+// Generic internal helpers
+// ---------------------------------------------------------------------------
 
-export function listOwnedDroplets(wallet: string): string[] {
+async function setOwner(type: ResourceType, id: string, wallet: string): Promise<void> {
   const w = wallet.toLowerCase();
-  return Object.entries(data.droplets)
+  if (useRedis) {
+    await redis!.set(ownerKey(type, id), w);
+    await redis!.sadd(ownedSetKey(w, type), id);
+  } else {
+    const data = getFileData();
+    storeForType(data, type)[id] = w;
+    saveData(data);
+  }
+}
+
+async function getOwner(type: ResourceType, id: string): Promise<string | undefined> {
+  if (useRedis) {
+    const val = await redis!.get<string>(ownerKey(type, id));
+    return val ?? undefined;
+  }
+  return storeForType(getFileData(), type)[id];
+}
+
+async function removeResource(type: ResourceType, id: string): Promise<void> {
+  if (useRedis) {
+    const owner = await redis!.get<string>(ownerKey(type, id));
+    await redis!.del(ownerKey(type, id));
+    if (owner) {
+      await redis!.srem(ownedSetKey(owner, type), id);
+    }
+  } else {
+    const data = getFileData();
+    delete storeForType(data, type)[id];
+    saveData(data);
+  }
+}
+
+async function listOwned(type: ResourceType, wallet: string): Promise<string[]> {
+  const w = wallet.toLowerCase();
+  if (useRedis) {
+    return (await redis!.smembers(ownedSetKey(w, type))) as string[];
+  }
+  const store = storeForType(getFileData(), type);
+  return Object.entries(store)
     .filter(([, owner]) => owner === w)
     .map(([id]) => id);
 }
 
-export function removeDroplet(dropletId: string): void {
-  delete data.droplets[dropletId];
-  saveData(data);
+// ---------------------------------------------------------------------------
+// Public API — same signatures as before, but now async
+// ---------------------------------------------------------------------------
+
+export async function setMachineOwner(machineId: string, wallet: string): Promise<void> {
+  await setOwner("machine", machineId, wallet);
 }
 
-export function assertOwnership(
+export async function getMachineOwner(machineId: string): Promise<string | undefined> {
+  return getOwner("machine", machineId);
+}
+
+export async function setVolumeOwner(volumeId: string, wallet: string): Promise<void> {
+  await setOwner("volume", volumeId, wallet);
+}
+
+export async function getVolumeOwner(volumeId: string): Promise<string | undefined> {
+  return getOwner("volume", volumeId);
+}
+
+export async function setDropletOwner(dropletId: string, wallet: string): Promise<void> {
+  await setOwner("droplet", dropletId, wallet);
+}
+
+export async function listOwnedDroplets(wallet: string): Promise<string[]> {
+  return listOwned("droplet", wallet);
+}
+
+export async function removeDroplet(dropletId: string): Promise<void> {
+  await removeResource("droplet", dropletId);
+}
+
+export async function assertOwnership(
   resourceId: string,
   wallet: string,
-  type: "machine" | "volume" | "droplet",
-): void {
-  const store = type === "machine" ? data.machines : type === "volume" ? data.volumes : data.droplets;
-  const owner = store[resourceId];
+  type: ResourceType,
+): Promise<void> {
+  const owner = await getOwner(type, resourceId);
   if (!owner) {
     throw new Error(`${type} ${resourceId} not found in registry`);
   }
@@ -91,26 +178,18 @@ export function assertOwnership(
   }
 }
 
-export function listOwnedMachines(wallet: string): string[] {
-  const w = wallet.toLowerCase();
-  return Object.entries(data.machines)
-    .filter(([, owner]) => owner === w)
-    .map(([id]) => id);
+export async function listOwnedMachines(wallet: string): Promise<string[]> {
+  return listOwned("machine", wallet);
 }
 
-export function listOwnedVolumes(wallet: string): string[] {
-  const w = wallet.toLowerCase();
-  return Object.entries(data.volumes)
-    .filter(([, owner]) => owner === w)
-    .map(([id]) => id);
+export async function listOwnedVolumes(wallet: string): Promise<string[]> {
+  return listOwned("volume", wallet);
 }
 
-export function removeMachine(machineId: string): void {
-  delete data.machines[machineId];
-  saveData(data);
+export async function removeMachine(machineId: string): Promise<void> {
+  await removeResource("machine", machineId);
 }
 
-export function removeVolume(volumeId: string): void {
-  delete data.volumes[volumeId];
-  saveData(data);
+export async function removeVolume(volumeId: string): Promise<void> {
+  await removeResource("volume", volumeId);
 }
