@@ -17,22 +17,22 @@ tempo wallet login
 
 Create a machine ($0.10):
 ```
-tempo request -t -X POST --json '{"name":"my-server","region":"sjc","config":{"image":"ubuntu:latest","init":{"cmd":["sleep","infinity"]},"guest":{"cpu_kind":"shared","cpus":1,"memory_mb":512}}}' https://tinycompute.fly.dev/api/machines
+tempo request -t -X POST --json '{"name":"my-server","region":"sjc","config":{"image":"ubuntu:latest","init":{"cmd":["sleep","infinity"]},"guest":{"cpu_kind":"shared","cpus":1,"memory_mb":512}}}' https://tinycompute.dev/api/machines
 ```
 
 Run a command ($0.01):
 ```
-tempo request -t -X POST --json '{"command":["ls","-la"]}' https://tinycompute.fly.dev/api/machines/{id}/exec
+tempo request -t -X POST --json '{"command":["ls","-la"]}' https://tinycompute.dev/api/machines/{id}/exec
 ```
 
 Stop ($0.001):
 ```
-tempo request -t -X POST https://tinycompute.fly.dev/api/machines/{id}/stop
+tempo request -t -X POST https://tinycompute.dev/api/machines/{id}/stop
 ```
 
 Destroy ($0.001):
 ```
-tempo request -t -X DELETE https://tinycompute.fly.dev/api/machines/{id}
+tempo request -t -X DELETE https://tinycompute.dev/api/machines/{id}
 ```
 
 ## Important
@@ -68,7 +68,7 @@ tempo request -t -X DELETE https://tinycompute.fly.dev/api/machines/{id}
 
 ## API Reference
 
-Base URL: https://tinycompute.fly.dev
+Base URL: https://tinycompute.dev
 
 ### Fly.io Machines
 
