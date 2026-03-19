@@ -19,6 +19,13 @@ Create a machine ($0.10):
 ```
 tempo request -t -X POST --json '{"name":"my-server","region":"sjc","config":{"image":"ubuntu:latest","init":{"cmd":["sleep","infinity"]},"guest":{"cpu_kind":"shared","cpus":1,"memory_mb":512}}}' https://tinycompute.dev/api/machines
 ```
+The response includes `connection.ips` and `connection.ports` for connecting to the machine.
+
+Create a game server (e.g., Minecraft):
+```
+tempo request -t -X POST --json '{"name":"mc-server","region":"sjc","config":{"image":"itzg/minecraft-server:latest","env":{"EULA":"TRUE","TYPE":"PAPER","MEMORY":"2G"},"guest":{"cpu_kind":"shared","cpus":2,"memory_mb":2048},"services":[{"protocol":"tcp","internal_port":25565,"ports":[{"port":25565}]}]}}' https://tinycompute.dev/api/machines
+```
+Connect via the IP from `connection.ips` on port 25565. No TLS handlers for raw TCP.
 
 Run a command ($0.01):
 ```
@@ -40,6 +47,24 @@ tempo request -t -X DELETE https://tinycompute.dev/api/machines/{id}
 - Use `init.cmd: ["sleep","infinity"]` for base images like ubuntu/debian — without it the container exits immediately.
 - Images with built-in servers (nginx, postgres, node apps) don't need init.cmd.
 - All costs are in USDC, paid automatically via MPP through the tempo CLI.
+- The create response includes a `connection` object with public IPs and ports.
+- Machines run on the `mpp-compute` Fly app which has a shared IPv4. Use the IP from `GET /api/apps/mpp-compute/ips`.
+
+## Service Configuration (TCP/UDP ports)
+
+To expose a port (e.g., a game server, database, web server), add `services` to your config:
+
+Raw TCP (game servers, databases — NO TLS):
+```json
+"services": [{"protocol": "tcp", "internal_port": 25565, "ports": [{"port": 25565}]}]
+```
+
+HTTP/HTTPS (web apps):
+```json
+"services": [{"protocol": "tcp", "internal_port": 8080, "ports": [{"port": 443, "handlers": ["tls", "http"]}, {"port": 80, "handlers": ["http"]}]}]
+```
+
+Do NOT add `"handlers": ["tls"]` for raw TCP protocols like Minecraft, PostgreSQL, Redis, etc. Only use handlers for HTTP traffic.
 
 ## Providers
 

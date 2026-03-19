@@ -28,6 +28,19 @@ export const POST = mppx.charge({ amount: PRICES.MACHINE_SETUP, description: "Ma
     const machine = await fly.machines.create(body);
     const wallet = getPayerWallet(req);
     if (wallet) await setMachineOwner(machine.id, wallet);
-    return jsonResponse(machine, 201);
+    // Include connection info: public IPs for the app
+    const ips = await fly.apps.listIps(process.env.FLY_APP_NAME!).catch(() => []);
+    const services = body.config?.services ?? [];
+    const ports = services.flatMap((s: any) => s.ports?.map((p: any) => p.port) ?? []);
+    return jsonResponse({
+      ...machine,
+      connection: {
+        ips: Array.isArray(ips) ? ips : [],
+        ports,
+        hint: ports.length > 0
+          ? `Connect to <ip>:${ports[0]}`
+          : "No services/ports configured — use exec to interact",
+      },
+    }, 201);
   }),
 );
