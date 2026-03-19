@@ -150,10 +150,10 @@ export async function requireOwnership(
 
 // --- Billing session helper ---
 
-export function registerBillingSession(req: Request, machineId: string, wallet: string): void {
+export async function registerBillingSession(req: Request, machineId: string, wallet: string): Promise<void> {
   const sessionId = req.headers.get("x-mpp-session-id") ?? `session-${Date.now()}`;
   const deposit = Number(req.headers.get("x-mpp-deposit") || PRICES.SESSION_DEPOSIT);
-  startSession(machineId, wallet, sessionId, deposit);
+  await startSession(machineId, wallet, sessionId, deposit);
 }
 
 // --- URL param extraction ---

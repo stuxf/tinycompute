@@ -11,7 +11,7 @@ export const POST = mppx.session({ amount: PRICES.SESSION_PER_MIN, unitType: "mi
     const id = extractParam(req, "droplets");
     const { wallet, resourceId } = await requireOwnership(req, id, "droplet");
     await doClient.droplets.powerOn(Number(resourceId));
-    registerBillingSession(req, resourceId, wallet);
+    await registerBillingSession(req, resourceId, wallet);
     return jsonResponse({ ok: true, billing: "session", rate: "$0.005/min" });
   }),
 );

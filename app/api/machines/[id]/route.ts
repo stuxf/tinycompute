@@ -25,7 +25,7 @@ export const DELETE = mppx.charge({ amount: PRICES.AUTH, description: "Destroy m
     const url = new URL(req.url);
     const force = url.searchParams.get("force") === "true";
     await fly.machines.destroy(resourceId, force);
-    stopSession(resourceId);
+    await stopSession(resourceId);
     await removeMachine(resourceId);
     return jsonResponse({ ok: true });
   }),

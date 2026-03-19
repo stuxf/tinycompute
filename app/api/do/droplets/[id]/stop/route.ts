@@ -12,7 +12,7 @@ export const POST = mppx.charge({ amount: PRICES.AUTH, description: "Stop drople
     const id = extractParam(req, "droplets");
     const { resourceId } = await requireOwnership(req, id, "droplet");
     await doClient.droplets.powerOff(Number(resourceId));
-    stopSession(resourceId);
+    await stopSession(resourceId);
     return jsonResponse({ ok: true });
   }),
 );

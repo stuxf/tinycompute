@@ -12,7 +12,7 @@ export const POST = mppx.charge({ amount: PRICES.AUTH, description: "Suspend mac
     const id = extractParam(req, "machines");
     const { resourceId } = await requireOwnership(req, id, "machine");
     await fly.machines.suspend(resourceId);
-    stopSession(resourceId);
+    await stopSession(resourceId);
     return jsonResponse({ ok: true });
   }),
 );

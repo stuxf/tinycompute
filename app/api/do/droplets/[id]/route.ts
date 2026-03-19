@@ -21,7 +21,7 @@ export const DELETE = mppx.charge({ amount: PRICES.AUTH, description: "Destroy d
     const id = extractParam(req, "droplets");
     const { resourceId } = await requireOwnership(req, id, "droplet");
     await doClient.droplets.delete(Number(resourceId));
-    stopSession(resourceId);
+    await stopSession(resourceId);
     await removeDroplet(resourceId);
     return jsonResponse({ ok: true });
   }),

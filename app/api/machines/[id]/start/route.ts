@@ -11,7 +11,7 @@ export const POST = mppx.session({ amount: PRICES.SESSION_PER_MIN, unitType: "mi
     const id = extractParam(req, "machines");
     const { wallet, resourceId } = await requireOwnership(req, id, "machine");
     await fly.machines.start(resourceId);
-    registerBillingSession(req, resourceId, wallet);
+    await registerBillingSession(req, resourceId, wallet);
     return jsonResponse({ ok: true, billing: "session", rate: "$0.005/min" });
   }),
 );
