@@ -1,0 +1,212 @@
+# TinyCompute — A compute marketplace via micropayments
+
+> Provision cloud machines with a single HTTP request. No API keys. No accounts. Pay per minute with USDC.
+
+## What is TinyCompute?
+
+TinyCompute is a compute marketplace that lets AI agents and automated systems provision cloud machines instantly by paying with USDC via MPP (Machine Payments Protocol). No signup, no API keys, no billing portal — just HTTP 402 payment and you have a running machine.
+
+We route to the best provider for your workload. Currently powered by Fly.io's Firecracker microVMs.
+
+## Why TinyCompute?
+
+- Instant machines — Firecracker microVMs boot in under a second with hardware-level isolation
+- 35+ global regions — deploy close to your users
+- Auto-stop on idle — machines suspend when unused, you stop paying
+- Persistent volumes — SSD storage that survives restarts
+- Any Docker image — run game servers, databases, APIs, anything
+- Provider-agnostic — we pick the best infrastructure for your workload
+
+## Base URL
+
+https://tinycompute.dev
+
+## Authentication
+
+Paid endpoints return HTTP 402 with payment requirements. Pay via x402/MPP (USDC on Tempo), resend with the payment credential. Free endpoints require wallet signature for ownership verification.
+
+## Pricing Summary
+
+One-time charges:
+- Create machine: $0.10
+- Create volume: $0.05
+- Extend volume: $0.05
+- Exec command: $0.01
+- Allocate IP: $0.01
+
+Session-based (MPP sessions — deposit upfront, stream vouchers per minute):
+- Start/restart machine: $0.005/min ($0.30/hr)
+- Machines auto-stop when deposit is consumed
+
+Free (wallet auth only):
+- List, get, stop, destroy, suspend machines
+- Machine events, processes, billing info, wait for state
+- List, get, delete volumes
+- Create/delete apps, list IPs
+
+## Endpoints
+
+### Machines
+
+#### GET /api/machines — List your machines (free)
+- Protection: Wallet auth (free)
+- Returns machines owned by the authenticated wallet
+- Returns: [{ "id": "string", "name": "string", "state": "string", "region": "string", "config": {...}, "created_at": "ISO date", "updated_at": "ISO date" }]
+
+#### GET /api/machines/:id — Get machine details (free)
+- Protection: Wallet auth (free, must own machine)
+- Returns: { "id": "string", "name": "string", "state": "string", "region": "string", "private_ip": "string", "config": {...}, "created_at": "ISO date", "updated_at": "ISO date", "events": [...] }
+
+#### POST /api/machines — Create a machine ($0.10)
+- Protection: x402/MPP payment ($0.10 USDC on Tempo)
+- Body: { "name": "my-machine", "region": "iad", "config": { "image": "ubuntu:latest", "guest": { "cpu_kind": "shared", "cpus": 1, "memory_mb": 256 }, "env": { "KEY": "value" }, "services": [{ "protocol": "tcp", "internal_port": 8080, "ports": [{ "port": 443, "handlers": ["tls", "http"] }] }], "mounts": [{ "volume": "vol_abc123", "path": "/data" }] } }
+- "name" and "region" are optional
+- "config.image" is required
+- "config.guest" defaults to shared/1cpu/256mb if omitted
+- "config.services", "config.env", "config.mounts" are optional
+- Also supports: "config.init", "config.processes", "config.files", "config.schedule", "config.metrics", "config.standbys", "config.metadata", "config.dns", "config.statics", "config.checks", "config.auto_destroy", "config.restart", "config.stop_config"
+- Returns: { "id": "string", "name": "string", "state": "created", "region": "iad", "config": {...}, "created_at": "ISO date" }
+
+#### POST /api/machines/:id/start — Start a machine ($0.005/min session)
+- Protection: x402/MPP session ($0.005/min USDC on Tempo, suggested deposit $0.30 for 1 hour)
+- Must own the machine
+- Opens a billing session that charges per minute until stopped
+- Machines auto-stop when the deposit is consumed
+- Returns: { "ok": true, "billing": "session", "rate": "$0.005/min" }
+
+#### POST /api/machines/:id/stop — Stop a machine (free)
+- Protection: Wallet auth (free, must own machine)
+- Stops the machine and ends the billing session
+- Returns: { "ok": true }
+
+#### POST /api/machines/:id/restart — Restart a machine ($0.005/min session)
+- Protection: x402/MPP session ($0.005/min USDC on Tempo, suggested deposit $0.30 for 1 hour)
+- Must own the machine
+- Restarts the machine and opens a new billing session
+- Returns: { "ok": true, "billing": "session", "rate": "$0.005/min" }
+
+#### DELETE /api/machines/:id — Destroy a machine (free)
+- Protection: Wallet auth (free, must own machine)
+- Query: ?force=true to force destroy
+- Permanently deletes the machine and ends any billing session
+- Returns: { "ok": true }
+
+#### GET /api/machines/:id/billing — Get billing info (free)
+- Protection: Wallet auth (free, must own machine)
+- Returns current billing session details for a running machine
+- Returns: { "machineId": "string", "sessionId": "string", "wallet": "0x...", "startTime": "ISO date", "elapsedMinutes": 12.5, "currentCost": 62500, "deposit": 300000, "remaining": 237500, "ratePerMinute": 5000, "ratePretty": "$0.005/min" }
+- Returns 404 if no active billing session
+
+#### POST /api/machines/:id/wait — Wait for machine state (free)
+- Protection: Wallet auth (free, must own machine)
+- Query: ?state=started&timeout=60
+- Valid states: created, started, stopped, destroyed, suspended
+- Blocks until the machine reaches the specified state or times out (max 300s)
+- Returns: machine object
+
+#### GET /api/machines/:id/events — Get machine events (free)
+- Protection: Wallet auth (free, must own machine)
+- Returns: [{ "type": "string", "status": "string", "timestamp": number }]
+
+#### POST /api/machines/:id/exec — Execute command ($0.01)
+- Protection: x402/MPP payment ($0.01 USDC on Tempo)
+- Must own the machine
+- Body: { "command": ["ls", "-la", "/"], "timeout": 30 }
+- "command" is required, must be a non-empty array of strings
+- "timeout" is optional, 1-60 seconds (default 30)
+- Returns: { "stdout": "string", "stderr": "string", "exit_code": 0 }
+
+#### POST /api/machines/:id/suspend — Suspend a machine (free)
+- Protection: Wallet auth (free, must own machine)
+- Returns: { "ok": true }
+
+#### GET /api/machines/:id/ps — List processes (free)
+- Protection: Wallet auth (free, must own machine)
+- Returns: list of running processes
+
+### Volumes
+
+#### GET /api/volumes — List your volumes (free)
+- Protection: Wallet auth (free)
+- Returns volumes owned by the authenticated wallet
+- Returns: [{ "id": "string", "name": "string", "state": "string", "size_gb": 1, "region": "iad", "encrypted": true, "attached_machine_id": "string|null", "created_at": "ISO date" }]
+
+#### GET /api/volumes/:id — Get volume details (free)
+- Protection: Wallet auth (free, must own volume)
+- Returns: volume object
+
+#### POST /api/volumes — Create a volume ($0.05)
+- Protection: x402/MPP payment ($0.05 USDC on Tempo)
+- Body: { "name": "my-data", "region": "iad", "size_gb": 1, "encrypted": true, "snapshot_id": "snap_abc123" }
+- "name", "region", "size_gb" are required
+- "encrypted" defaults to true, "snapshot_id" is optional
+- Returns: { "id": "string", "name": "string", "state": "created", "size_gb": 1, "region": "iad", "encrypted": true }
+
+#### DELETE /api/volumes/:id — Delete a volume (free)
+- Protection: Wallet auth (free, must own volume)
+- Returns: { "ok": true }
+
+#### PUT /api/volumes/:id/extend — Extend volume size ($0.05)
+- Protection: x402/MPP payment ($0.05 USDC on Tempo)
+- Must own the volume
+- Body: { "size_gb": 5 }
+- "size_gb" must be larger than current size, max 500
+- Returns: volume object with updated size
+
+### Apps
+
+#### POST /api/apps — Create an app (free)
+- Protection: Wallet auth (free)
+- Body: { "app_name": "my-app", "org_slug": "personal", "network": "default" }
+- Returns: { "id": "string", "name": "string", "status": "string", "organization": { "id": "string", "slug": "string" } }
+
+#### DELETE /api/apps/:name — Delete an app (free)
+- Protection: Wallet auth (free)
+- Query: ?force=true to force delete
+- Returns: { "ok": true }
+
+#### GET /api/apps/:name/ips — List IP assignments (free)
+- Returns: [{ "id": "string", "address": "string", "type": "shared_v4", "region": "string", "created_at": "ISO date" }]
+
+#### POST /api/apps/:name/ips — Allocate an IP ($0.01)
+- Protection: x402/MPP payment ($0.01 USDC on Tempo)
+- Body: { "type": "shared_v4", "region": "iad" }
+- "type" options: "v4", "v6", "shared_v4" (default)
+- "region" is optional
+- Returns: { "id": "string", "address": "string", "type": "shared_v4", "region": "string", "created_at": "ISO date" }
+
+### System
+
+#### GET /health — Health check (free, no auth)
+- Returns: { "ok": true }
+
+#### GET /llms.txt — This file (free, no auth)
+- Returns this document as text/plain
+
+## Typical Workflow
+
+1. Create a machine: POST /api/machines with image and config ($0.10)
+2. Start the machine: POST /api/machines/:id/start (opens $0.005/min session)
+3. Wait for it: POST /api/machines/:id/wait?state=started
+4. Use it: POST /api/machines/:id/exec to run commands ($0.01 each)
+5. Check billing: GET /api/machines/:id/billing
+6. Stop when done: POST /api/machines/:id/stop (ends billing)
+7. Destroy if no longer needed: DELETE /api/machines/:id
+
+## Error Responses
+
+All errors return JSON: { "error": "message", "code": "ERROR_CODE", "details": [...] }
+
+Error codes: AUTH_REQUIRED (401), FORBIDDEN (403), NOT_FOUND (404), VALIDATION_ERROR (400), FLY_API_ERROR (various), INTERNAL_ERROR (500)
+
+## Agent Integration
+
+Use [agentcash-skills](https://github.com/Merit-Systems/agentcash-skills) as an MCP server (`npx -y agentcash@latest`) or CLI (`npx agentcash fetch ...`). It handles x402/MPP payment negotiation automatically.
+
+## Payment Details
+
+- Network: Tempo
+- Currency: USDC
+- Protocol: x402 (https://www.x402.org) / MPP (https://mpp.dev)
+- Flow: Send request -> receive 402 with PAYMENT-REQUIRED header -> sign payment -> resend with payment header
+- Sessions: For per-minute billing, a deposit is locked upfront and vouchers stream as the machine runs. Machines auto-stop when the deposit is consumed.

@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>TinyCompute — Pay-per-minute cloud compute via micropayments</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #09090b;
+    --bg-subtle: #18181b;
+    --border: #27272a;
+    --text: #e4e4e7;
+    --text-muted: #a1a1aa;
+    --text-dim: #71717a;
+    --mono: "SF Mono", "Cascadia Code", "Fira Code", "Menlo", monospace;
+    --sans: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --max-w: 42rem;
+  }
+
+  html { background: var(--bg); color: var(--text); }
+  body {
+    font-family: var(--sans);
+    font-size: 0.9375rem;
+    line-height: 1.65;
+    padding: 5rem 1.5rem;
+    max-width: var(--max-w);
+    margin: 0 auto;
+  }
+
+  /* ---- Typography ---- */
+  h1 { font-size: 1.5rem; font-weight: 600; letter-spacing: -0.02em; margin-bottom: 0.5rem; }
+  h2 {
+    font-size: 0.75rem;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-dim);
+    margin-bottom: 1rem;
+  }
+  p { color: var(--text-muted); }
+  a { color: var(--text); text-decoration: underline; text-decoration-color: var(--border); text-underline-offset: 3px; }
+  a:hover { text-decoration-color: var(--text-muted); }
+  code {
+    font-family: var(--mono);
+    font-size: 0.8125rem;
+    background: var(--bg-subtle);
+    border: 1px solid var(--border);
+    border-radius: 0.25rem;
+    padding: 0.1rem 0.35rem;
+  }
+
+  /* ---- Sections ---- */
+  section { margin-top: 3.5rem; }
+
+  .hero-sub {
+    font-size: 1.05rem;
+    color: var(--text-muted);
+    margin-top: 0.25rem;
+  }
+
+  /* ---- Steps ---- */
+  .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin-top: 1rem; }
+  .step {
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+    padding: 1.25rem;
+  }
+  .step-num {
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    color: var(--text-dim);
+    margin-bottom: 0.5rem;
+  }
+  .step-title { font-weight: 600; margin-bottom: 0.25rem; font-size: 0.9375rem; }
+  .step-desc { color: var(--text-muted); font-size: 0.8125rem; }
+
+  /* ---- Table ---- */
+  table { width: 100%; border-collapse: collapse; margin-top: 1rem; font-size: 0.875rem; }
+  th {
+    text-align: left;
+    font-weight: 500;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-dim);
+    padding: 0.625rem 0.75rem;
+    background: var(--bg-subtle);
+    border: 1px solid var(--border);
+  }
+  th:first-child { border-radius: 0.375rem 0 0 0; }
+  th:last-child { border-radius: 0 0.375rem 0 0; }
+  td {
+    padding: 0.625rem 0.75rem;
+    border-bottom: 1px solid var(--border);
+    border-left: 1px solid var(--border);
+    border-right: 1px solid var(--border);
+    color: var(--text-muted);
+  }
+  td:first-child { font-family: var(--mono); font-size: 0.8125rem; color: var(--text); }
+  td:last-child { font-family: var(--mono); font-size: 0.8125rem; }
+  .free { color: var(--text-dim); }
+
+  /* ---- Endpoint list ---- */
+  .endpoints { margin-top: 1rem; }
+  .endpoint {
+    display: flex;
+    align-items: baseline;
+    gap: 0.75rem;
+    padding: 0.5rem 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.8125rem;
+  }
+  .endpoint:last-child { border-bottom: none; }
+  .method {
+    font-family: var(--mono);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    padding: 0.15rem 0.4rem;
+    border-radius: 0.25rem;
+    background: var(--bg-subtle);
+    border: 1px solid var(--border);
+    min-width: 3.5rem;
+    text-align: center;
+    flex-shrink: 0;
+    color: var(--text);
+  }
+  .path { font-family: var(--mono); color: var(--text); }
+  .ep-desc { color: var(--text-dim); margin-left: auto; white-space: nowrap; }
+
+  /* ---- Footer ---- */
+  footer {
+    margin-top: 4rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--border);
+    font-size: 0.8125rem;
+    color: var(--text-dim);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  footer nav { display: flex; gap: 1.25rem; }
+  footer a { color: var(--text-dim); font-size: 0.8125rem; }
+
+  @media (max-width: 640px) {
+    .steps { grid-template-columns: 1fr; }
+    .endpoint { flex-wrap: wrap; gap: 0.25rem; }
+    .ep-desc { margin-left: 4.25rem; }
+    footer { flex-direction: column; gap: 0.75rem; align-items: flex-start; }
+  }
+</style>
+</head>
+<body>
+
+<!-- Hero -->
+<header>
+  <h1>TinyCompute</h1>
+  <p class="hero-sub">A compute marketplace via micropayments. No accounts. No API keys. Pay per minute.</p>
+</header>
+
+<!-- Why -->
+<section>
+  <h2>Why TinyCompute</h2>
+  <div class="steps">
+    <div class="step">
+      <div class="step-num">~1s</div>
+      <div class="step-title">Instant machines</div>
+      <div class="step-desc">Firecracker microVMs with hardware-level isolation. Boot in under a second.</div>
+    </div>
+    <div class="step">
+      <div class="step-num">35+</div>
+      <div class="step-title">Global regions</div>
+      <div class="step-desc">Provision compute close to your users. From Sao Paulo to Tokyo.</div>
+    </div>
+    <div class="step">
+      <div class="step-num">$0</div>
+      <div class="step-title">When idle</div>
+      <div class="step-desc">Machines auto-stop when unused. You only pay for compute you actually use.</div>
+    </div>
+  </div>
+</section>
+
+<!-- How it works -->
+<section>
+  <h2>How It Works</h2>
+  <div class="steps">
+    <div class="step">
+      <div class="step-num">01</div>
+      <div class="step-title">Pay</div>
+      <div class="step-desc">Attach a USDC micropayment via MPP. No signup, no API keys, no billing portal.</div>
+    </div>
+    <div class="step">
+      <div class="step-num">02</div>
+      <div class="step-title">Provision</div>
+      <div class="step-desc">We route to the best provider for your workload. Machines, volumes, and IPs mapped to your wallet.</div>
+    </div>
+    <div class="step">
+      <div class="step-num">03</div>
+      <div class="step-title">Use</div>
+      <div class="step-desc">Run any Docker image. Session billing streams per-minute payments while compute runs.</div>
+    </div>
+  </div>
+</section>
+
+<!-- Pricing -->
+<section>
+  <h2>Pricing</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Action</th>
+        <th>Type</th>
+        <th>Cost</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td>Create machine</td><td>One-time</td><td>$0.10</td></tr>
+      <tr><td>Start / restart machine</td><td>Session</td><td>$0.005/min</td></tr>
+      <tr><td>Execute command</td><td>One-time</td><td>$0.01</td></tr>
+      <tr><td>Create volume</td><td>One-time</td><td>$0.05</td></tr>
+      <tr><td>Extend volume</td><td>One-time</td><td>$0.05</td></tr>
+      <tr><td>Allocate IP</td><td>One-time</td><td>$0.01</td></tr>
+      <tr><td>Stop, destroy, list, status</td><td class="free">Free</td><td class="free">Free</td></tr>
+      <tr><td>Create / delete app, list IPs</td><td class="free">Free</td><td class="free">Free</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- API Endpoints -->
+<section>
+  <h2>API Endpoints</h2>
+  <div class="endpoints">
+    <div class="endpoint"><span class="method">GET</span><span class="path">/health</span><span class="ep-desc">Health check</span></div>
+    <div class="endpoint"><span class="method">POST</span><span class="path">/api/machines</span><span class="ep-desc">Create machine</span></div>
+    <div class="endpoint"><span class="method">GET</span><span class="path">/api/machines</span><span class="ep-desc">List my machines</span></div>
+    <div class="endpoint"><span class="method">GET</span><span class="path">/api/machines/:id</span><span class="ep-desc">Get machine</span></div>
+    <div class="endpoint"><span class="method">POST</span><span class="path">/api/machines/:id/start</span><span class="ep-desc">Start machine</span></div>
+    <div class="endpoint"><span class="method">POST</span><span class="path">/api/machines/:id/stop</span><span class="ep-desc">Stop machine</span></div>
+    <div class="endpoint"><span class="method">POST</span><span class="path">/api/machines/:id/restart</span><span class="ep-desc">Restart machine</span></div>
+    <div class="endpoint"><span class="method">DEL</span><span class="path">/api/machines/:id</span><span class="ep-desc">Destroy machine</span></div>
+    <div class="endpoint"><span class="method">POST</span><span class="path">/api/machines/:id/exec</span><span class="ep-desc">Execute command</span></div>
+    <div class="endpoint"><span class="method">POST</span><span class="path">/api/machines/:id/wait</span><span class="ep-desc">Wait for state</span></div>
+    <div class="endpoint"><span class="method">GET</span><span class="path">/api/machines/:id/events</span><span class="ep-desc">Machine events</span></div>
+    <div class="endpoint"><span class="method">POST</span><span class="path">/api/machines/:id/suspend</span><span class="ep-desc">Suspend machine</span></div>
+    <div class="endpoint"><span class="method">GET</span><span class="path">/api/machines/:id/ps</span><span class="ep-desc">List processes</span></div>
+    <div class="endpoint"><span class="method">GET</span><span class="path">/api/machines/:id/billing</span><span class="ep-desc">Billing info</span></div>
+    <div class="endpoint"><span class="method">POST</span><span class="path">/api/volumes</span><span class="ep-desc">Create volume</span></div>
+    <div class="endpoint"><span class="method">GET</span><span class="path">/api/volumes</span><span class="ep-desc">List my volumes</span></div>
+    <div class="endpoint"><span class="method">GET</span><span class="path">/api/volumes/:id</span><span class="ep-desc">Get volume</span></div>
+    <div class="endpoint"><span class="method">DEL</span><span class="path">/api/volumes/:id</span><span class="ep-desc">Delete volume</span></div>
+    <div class="endpoint"><span class="method">PUT</span><span class="path">/api/volumes/:id/extend</span><span class="ep-desc">Extend volume</span></div>
+    <div class="endpoint"><span class="method">POST</span><span class="path">/api/apps</span><span class="ep-desc">Create app</span></div>
+    <div class="endpoint"><span class="method">DEL</span><span class="path">/api/apps/:name</span><span class="ep-desc">Delete app</span></div>
+    <div class="endpoint"><span class="method">GET</span><span class="path">/api/apps/:name/ips</span><span class="ep-desc">List IPs</span></div>
+    <div class="endpoint"><span class="method">POST</span><span class="path">/api/apps/:name/ips</span><span class="ep-desc">Allocate IP</span></div>
+  </div>
+</section>
+
+<!-- Footer -->
+<footer>
+  <span>TinyCompute</span>
+  <nav>
+    <a href="/llms.txt">llms.txt</a>
+    <a href="https://github.com/anthropics">GitHub</a>
+  </nav>
+</footer>
+
+</body>
+</html>

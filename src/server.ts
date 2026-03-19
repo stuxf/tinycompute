@@ -1,0 +1,393 @@
+/**
+ * MPP-gated compute provisioning API
+ * Session-based billing: pay per minute of compute, one-time fees for setup.
+ */
+
+import "dotenv/config";
+import { readFileSync } from "node:fs";
+import { resolve, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+import { Hono } from "hono";
+import { serve } from "@hono/node-server";
+import { Credential } from "mppx";
+import { FlyClient, FlyApiError } from "./fly/index.js";
+import { mppx } from "./mpp.js";
+import {
+  validateCreateMachine,
+  validateCreateVolume,
+  validateExtendVolume,
+  validateWaitState,
+  validateExecCommand,
+} from "./validation.js";
+import type { ValidationError } from "./validation.js";
+import {
+  setMachineOwner,
+  setVolumeOwner,
+  assertOwnership,
+  listOwnedMachines,
+  listOwnedVolumes,
+  removeMachine,
+  removeVolume,
+} from "./ownership.js";
+import {
+  startSession,
+  stopSession,
+  getBillingInfo,
+  startBillingEnforcement,
+  stopBillingEnforcement,
+} from "./billing.js";
+import type { Context, Next } from "hono";
+
+// --- Config ---
+const FLY_TOKEN = process.env.FLY_API_TOKEN;
+const FLY_APP = process.env.FLY_APP_NAME;
+const PORT = Number(process.env.PORT ?? 3000);
+
+if (!FLY_TOKEN || !FLY_APP) {
+  console.error("Missing FLY_API_TOKEN or FLY_APP_NAME env vars");
+  process.exit(1);
+}
+
+const fly = new FlyClient({ token: FLY_TOKEN, appName: FLY_APP });
+
+// --- Standardized error responses ---
+
+function errorResponse(
+  c: Context,
+  status: number,
+  error: string,
+  code: string,
+  details?: unknown,
+): Response {
+  const body: { error: string; code: string; details?: unknown } = {
+    error,
+    code,
+  };
+  if (details !== undefined) body.details = details;
+  return c.json(body, status as any);
+}
+
+function validationErrorResponse(
+  c: Context,
+  validationErrors: ValidationError[],
+): Response {
+  return errorResponse(c, 400, "Validation failed", "VALIDATION_ERROR", validationErrors);
+}
+
+// --- Pricing constants (amounts in USDC base units, 1 unit = $0.000001) ---
+const PRICES = {
+  MACHINE_SETUP: "100000",    // $0.10
+  VOLUME_SETUP: "50000",      // $0.05
+  VOLUME_EXTEND: "50000",     // $0.05
+  EXEC_COMMAND: "10000",      // $0.01
+  ALLOCATE_IP: "10000",       // $0.01
+  SESSION_PER_MIN: "5000",    // $0.005/min
+  SESSION_DEPOSIT: "300000",  // $0.30 suggested (1 hour)
+} as const;
+
+// --- Helpers ---
+
+/** Extract payer wallet address from MPP credential in Authorization header */
+function getPayerWallet(c: Context): string | null {
+  if (!c.req.header("authorization")) return null;
+  try {
+    const credential = Credential.fromRequest(c.req.raw);
+    if (credential.source) {
+      const parts = credential.source.split(":");
+      return parts[parts.length - 1].toLowerCase();
+    }
+  } catch {
+    // No valid credential
+  }
+  return null;
+}
+
+/** Require wallet auth — returns wallet string or throws */
+function requireWallet(c: Context): string {
+  const wallet = getPayerWallet(c);
+  if (!wallet) throw new FlyApiError(401, "Authorization required");
+  return wallet;
+}
+
+/** Require wallet auth + resource ownership — returns { wallet, resourceId } or throws */
+function requireOwnership(
+  c: Context,
+  paramName: string,
+  type: "machine" | "volume",
+): { wallet: string; resourceId: string } {
+  const wallet = requireWallet(c);
+  const resourceId = c.req.param(paramName);
+  assertOwnership(resourceId, wallet, type);
+  return { wallet, resourceId };
+}
+
+/** Register a billing session from MPP session headers */
+function registerBillingSession(c: Context, machineId: string, wallet: string): void {
+  const sessionId = c.req.header("x-mpp-session-id") ?? `session-${Date.now()}`;
+  const deposit = Number(c.req.header("x-mpp-deposit") || PRICES.SESSION_DEPOSIT);
+  startSession(machineId, wallet, sessionId, deposit);
+}
+
+/** Wrap handler with error handling */
+function withErrorHandling(
+  handler: (c: Context) => Promise<Response>,
+): (c: Context) => Promise<Response> {
+  return async (c: Context) => {
+    try {
+      return await handler(c);
+    } catch (err) {
+      if (err instanceof FlyApiError) {
+        const code = err.statusCode === 401 ? "AUTH_REQUIRED"
+          : err.statusCode === 403 ? "FORBIDDEN"
+          : "FLY_API_ERROR";
+        return errorResponse(c, err.statusCode, err.message, code);
+      }
+      const message = err instanceof Error ? err.message : "Unknown error";
+      if (message.includes("Not authorized") || message.includes("not own")) {
+        return errorResponse(c, 403, message, "FORBIDDEN");
+      }
+      if (message.includes("not found in registry")) {
+        return errorResponse(c, 404, message, "NOT_FOUND");
+      }
+      return errorResponse(c, 500, message, "INTERNAL_ERROR");
+    }
+  };
+}
+
+const app = new Hono();
+
+// --- Static assets ---
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const publicDir = resolve(__dirname, "..", "public");
+const landingHtml = readFileSync(resolve(publicDir, "index.html"), "utf-8");
+const llmsTxt = readFileSync(resolve(publicDir, "llms.txt"), "utf-8");
+
+app.get("/", (c: Context) => c.html(landingHtml));
+app.get("/llms.txt", (c: Context) => c.text(llmsTxt));
+
+// --- Health (free) ---
+app.get("/health", (c: Context) => c.json({ ok: true }));
+
+// --- Machines: List (free) ---
+app.get("/api/machines", withErrorHandling(async (c: Context) => {
+  const wallet = requireWallet(c);
+  const ownedIds = listOwnedMachines(wallet);
+  if (ownedIds.length === 0) return c.json([]);
+  const allMachines = await fly.machines.list();
+  return c.json(allMachines.filter((m) => ownedIds.includes(m.id)));
+}));
+
+// --- Machines: Get (free) ---
+app.get("/api/machines/:id", withErrorHandling(async (c: Context) => {
+  const { resourceId } = requireOwnership(c, "id", "machine");
+  return c.json(await fly.machines.get(resourceId));
+}));
+
+// --- Machines: Create (charge) ---
+app.post("/api/machines",
+  async (c: Context, next: Next) => {
+    const body = await c.req.json();
+    const v = validateCreateMachine(body);
+    if (!v.ok) return validationErrorResponse(c, v.errors);
+    c.set("validatedBody", body);
+    await next();
+  },
+  mppx.charge({ amount: PRICES.MACHINE_SETUP, description: "Machine setup fee" }),
+  withErrorHandling(async (c: Context) => {
+    const machine = await fly.machines.create(c.get("validatedBody"));
+    const wallet = getPayerWallet(c);
+    if (wallet) setMachineOwner(machine.id, wallet);
+    return c.json(machine, 201);
+  }),
+);
+
+// --- Machines: Start (session) ---
+app.post("/api/machines/:id/start",
+  mppx.session({ amount: PRICES.SESSION_PER_MIN, unitType: "minute", suggestedDeposit: PRICES.SESSION_DEPOSIT }),
+  withErrorHandling(async (c: Context) => {
+    const { wallet, resourceId } = requireOwnership(c, "id", "machine");
+    await fly.machines.start(resourceId);
+    registerBillingSession(c, resourceId, wallet);
+    return c.json({ ok: true, billing: "session", rate: "$0.005/min" });
+  }),
+);
+
+// --- Machines: Stop (free) ---
+app.post("/api/machines/:id/stop", withErrorHandling(async (c: Context) => {
+  const { resourceId } = requireOwnership(c, "id", "machine");
+  await fly.machines.stop(resourceId);
+  stopSession(resourceId);
+  return c.json({ ok: true });
+}));
+
+// --- Machines: Restart (session) ---
+app.post("/api/machines/:id/restart",
+  mppx.session({ amount: PRICES.SESSION_PER_MIN, unitType: "minute", suggestedDeposit: PRICES.SESSION_DEPOSIT }),
+  withErrorHandling(async (c: Context) => {
+    const { wallet, resourceId } = requireOwnership(c, "id", "machine");
+    await fly.machines.restart(resourceId);
+    stopSession(resourceId);
+    registerBillingSession(c, resourceId, wallet);
+    return c.json({ ok: true, billing: "session", rate: "$0.005/min" });
+  }),
+);
+
+// --- Machines: Destroy (free) ---
+app.delete("/api/machines/:id", withErrorHandling(async (c: Context) => {
+  const { resourceId } = requireOwnership(c, "id", "machine");
+  const force = c.req.query("force") === "true";
+  await fly.machines.destroy(resourceId, force);
+  stopSession(resourceId);
+  removeMachine(resourceId);
+  return c.json({ ok: true });
+}));
+
+// --- Machines: Billing info (free) ---
+app.get("/api/machines/:id/billing", withErrorHandling(async (c: Context) => {
+  const { resourceId } = requireOwnership(c, "id", "machine");
+  const info = getBillingInfo(resourceId);
+  if (!info) return errorResponse(c, 404, "No active billing session", "NOT_FOUND");
+  return c.json(info);
+}));
+
+// --- Machines: Wait for state (free) ---
+app.post("/api/machines/:id/wait", withErrorHandling(async (c: Context) => {
+  const { resourceId } = requireOwnership(c, "id", "machine");
+  const state = c.req.query("state") ?? "started";
+  const sv = validateWaitState(state);
+  if (!sv.ok) return validationErrorResponse(c, sv.errors);
+  const timeout = Number(c.req.query("timeout") ?? 60);
+  return c.json(await fly.machines.waitForState(resourceId, state, timeout));
+}));
+
+// --- Machines: Events (free) ---
+app.get("/api/machines/:id/events", withErrorHandling(async (c: Context) => {
+  const { resourceId } = requireOwnership(c, "id", "machine");
+  return c.json(await fly.machines.events(resourceId));
+}));
+
+// --- Machines: Exec (charge) ---
+app.post("/api/machines/:id/exec",
+  async (c: Context, next: Next) => {
+    const body = await c.req.json();
+    const v = validateExecCommand(body);
+    if (!v.ok) return validationErrorResponse(c, v.errors);
+    c.set("validatedBody", { command: v.command, timeout: v.timeout });
+    await next();
+  },
+  mppx.charge({ amount: PRICES.EXEC_COMMAND, description: "Execute command in machine" }),
+  withErrorHandling(async (c: Context) => {
+    const { resourceId } = requireOwnership(c, "id", "machine");
+    const { command, timeout } = c.get("validatedBody");
+    return c.json(await fly.machines.exec(resourceId, command, timeout));
+  }),
+);
+
+// --- Machines: Suspend (free) ---
+app.post("/api/machines/:id/suspend", withErrorHandling(async (c: Context) => {
+  const { resourceId } = requireOwnership(c, "id", "machine");
+  await fly.machines.suspend(resourceId);
+  return c.json({ ok: true });
+}));
+
+// --- Machines: Processes (free) ---
+app.get("/api/machines/:id/ps", withErrorHandling(async (c: Context) => {
+  const { resourceId } = requireOwnership(c, "id", "machine");
+  return c.json(await fly.machines.ps(resourceId));
+}));
+
+// --- Volumes: Create (charge) ---
+app.post("/api/volumes",
+  async (c: Context, next: Next) => {
+    const body = await c.req.json();
+    const v = validateCreateVolume(body);
+    if (!v.ok) return validationErrorResponse(c, v.errors);
+    c.set("validatedBody", body);
+    await next();
+  },
+  mppx.charge({ amount: PRICES.VOLUME_SETUP, description: "Volume setup fee" }),
+  withErrorHandling(async (c: Context) => {
+    const volume = await fly.volumes.create(c.get("validatedBody"));
+    const wallet = getPayerWallet(c);
+    if (wallet) setVolumeOwner(volume.id, wallet);
+    return c.json(volume, 201);
+  }),
+);
+
+// --- Volumes: List (free) ---
+app.get("/api/volumes", withErrorHandling(async (c: Context) => {
+  const wallet = requireWallet(c);
+  const ownedIds = listOwnedVolumes(wallet);
+  if (ownedIds.length === 0) return c.json([]);
+  const allVolumes = await fly.volumes.list();
+  return c.json(allVolumes.filter((v) => ownedIds.includes(v.id)));
+}));
+
+// --- Volumes: Get (free) ---
+app.get("/api/volumes/:id", withErrorHandling(async (c: Context) => {
+  const { resourceId } = requireOwnership(c, "id", "volume");
+  return c.json(await fly.volumes.get(resourceId));
+}));
+
+// --- Volumes: Delete (free) ---
+app.delete("/api/volumes/:id", withErrorHandling(async (c: Context) => {
+  const { resourceId } = requireOwnership(c, "id", "volume");
+  await fly.volumes.delete(resourceId);
+  removeVolume(resourceId);
+  return c.json({ ok: true });
+}));
+
+// --- Volumes: Extend (charge) ---
+app.put("/api/volumes/:id/extend",
+  async (c: Context, next: Next) => {
+    const body = await c.req.json();
+    const v = validateExtendVolume(body);
+    if (!v.ok) return validationErrorResponse(c, v.errors);
+    c.set("validatedBody", { size_gb: v.size_gb });
+    await next();
+  },
+  mppx.charge({ amount: PRICES.VOLUME_EXTEND, description: "Extend storage volume" }),
+  withErrorHandling(async (c: Context) => {
+    const { resourceId } = requireOwnership(c, "id", "volume");
+    const { size_gb } = c.get("validatedBody");
+    return c.json(await fly.volumes.extend(resourceId, size_gb));
+  }),
+);
+
+// --- Apps: Create (free) ---
+app.post("/api/apps", withErrorHandling(async (c: Context) => {
+  requireWallet(c);
+  return c.json(await fly.apps.create(await c.req.json()), 201);
+}));
+
+// --- Apps: Delete (free) ---
+app.delete("/api/apps/:name", withErrorHandling(async (c: Context) => {
+  requireWallet(c);
+  const force = c.req.query("force") === "true";
+  await fly.apps.delete(c.req.param("name"), force);
+  return c.json({ ok: true });
+}));
+
+// --- Apps: List IPs (free, no auth) ---
+app.get("/api/apps/:name/ips", withErrorHandling(async (c: Context) => {
+  return c.json(await fly.apps.listIps(c.req.param("name")));
+}));
+
+// --- Apps: Allocate IP (charge) ---
+app.post("/api/apps/:name/ips",
+  mppx.charge({ amount: PRICES.ALLOCATE_IP, description: "Allocate IP address" }),
+  withErrorHandling(async (c: Context) => {
+    const body = await c.req.json().catch(() => ({}));
+    return c.json(await fly.apps.allocateIp(c.req.param("name"), body.type ?? "shared_v4", body.region), 201);
+  }),
+);
+
+// --- Lifecycle ---
+startBillingEnforcement(fly.machines);
+process.on("SIGTERM", () => { stopBillingEnforcement(); process.exit(0); });
+process.on("SIGINT", () => { stopBillingEnforcement(); process.exit(0); });
+
+// --- Start ---
+serve({ fetch: app.fetch, port: PORT }, (info) => {
+  console.log(`Server running on http://localhost:${info.port}`);
+});
