@@ -61,7 +61,7 @@ if (!DO_TOKEN) {
 }
 
 const fly = new FlyClient({ token: FLY_TOKEN, appName: FLY_APP });
-const doClient = new DOClient({ token: DO_TOKEN });
+const doClient = new DOClient({ token: DO_TOKEN, projectId: DO_PROJECT_ID });
 
 // --- Standardized error responses ---
 
@@ -103,7 +103,7 @@ const PRICES = {
 /** Extract a required route param, asserting it exists */
 function param(c: Context, name: string): string {
   const v = c.req.param(name);
-  if (!v) throw new FlyApiError(400, `Missing route parameter: ${name}`);
+  if (!v) throw new Error(`Missing route parameter: ${name}`);
   return v;
 }
 
@@ -146,6 +146,17 @@ function registerBillingSession(c: Context, machineId: string, wallet: string): 
   const sessionId = c.req.header("x-mpp-session-id") ?? `session-${Date.now()}`;
   const deposit = Number(c.req.header("x-mpp-deposit") || PRICES.SESSION_DEPOSIT);
   startSession(machineId, wallet, sessionId, deposit);
+}
+
+/** Validation middleware factory — validates body before MPP charges */
+function validate(fn: (body: unknown) => { ok: boolean; errors?: ValidationError[] }) {
+  return async (c: Context, next: Next) => {
+    const body = await c.req.json();
+    const v = fn(body);
+    if (!v.ok) return validationErrorResponse(c, v.errors as ValidationError[]);
+    c.set("validatedBody", body);
+    await next();
+  };
 }
 
 /** Wrap handler with error handling */
@@ -211,13 +222,7 @@ app.get("/api/machines/:id", withErrorHandling(async (c: Context) => {
 
 // --- Machines: Create (charge) ---
 app.post("/api/machines",
-  async (c: Context, next: Next) => {
-    const body = await c.req.json();
-    const v = validateCreateMachine(body);
-    if (!v.ok) return validationErrorResponse(c, v.errors);
-    c.set("validatedBody", body);
-    await next();
-  },
+  validate(validateCreateMachine),
   mppx.charge({ amount: PRICES.MACHINE_SETUP, description: "Machine setup fee" }),
   withErrorHandling(async (c: Context) => {
     const machine = await fly.machines.create(c.get("validatedBody"));
@@ -324,13 +329,7 @@ app.get("/api/machines/:id/ps", withErrorHandling(async (c: Context) => {
 
 // --- Volumes: Create (charge) ---
 app.post("/api/volumes",
-  async (c: Context, next: Next) => {
-    const body = await c.req.json();
-    const v = validateCreateVolume(body);
-    if (!v.ok) return validationErrorResponse(c, v.errors);
-    c.set("validatedBody", body);
-    await next();
-  },
+  validate(validateCreateVolume),
   mppx.charge({ amount: PRICES.VOLUME_SETUP, description: "Volume setup fee" }),
   withErrorHandling(async (c: Context) => {
     const volume = await fly.volumes.create(c.get("validatedBody"));
@@ -414,25 +413,13 @@ app.post("/api/apps/:name/ips",
 
 // --- Droplets: Create (charge) ---
 app.post("/api/do/droplets",
-  async (c: Context, next: Next) => {
-    const body = await c.req.json();
-    const v = validateCreateDroplet(body);
-    if (!v.ok) return validationErrorResponse(c, v.errors);
-    c.set("validatedBody", body);
-    await next();
-  },
+  validate(validateCreateDroplet),
   mppx.charge({ amount: PRICES.MACHINE_SETUP, description: "Droplet setup fee" }),
   withErrorHandling(async (c: Context) => {
     const body = c.get("validatedBody");
     const droplet = await doClient.droplets.create(body);
     const wallet = getPayerWallet(c);
     if (wallet) setDropletOwner(String(droplet.id), wallet);
-    // Assign to DO project (best-effort, don't fail the request)
-    try {
-      await doClient.projects.assignResources(DO_PROJECT_ID, [`do:droplet:${droplet.id}`]);
-    } catch (err) {
-      console.error(`[do] Failed to assign droplet ${droplet.id} to project:`, err instanceof Error ? err.message : err);
-    }
     return c.json(droplet, 201);
   }),
 );
