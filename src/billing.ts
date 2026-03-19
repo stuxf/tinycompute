@@ -6,8 +6,8 @@
 
 import type { FlyMachinesClient } from "./fly/machines.js";
 
-/** Rate per minute in base units (1 unit = $0.000001, so 5000 = $0.005) */
-const RATE_PER_MINUTE = 5000;
+/** Rate per minute in USDC */
+const RATE_PER_MINUTE = 0.005;
 
 export interface BillingSession {
   machineId: string;
@@ -85,7 +85,7 @@ export function getBillingInfo(machineId: string): BillingInfo | null {
     deposit: session.deposit,
     remaining: session.deposit - cost,
     ratePerMinute: RATE_PER_MINUTE,
-    ratePretty: `$${(RATE_PER_MINUTE / 1_000_000).toFixed(3)}/min`,
+    ratePretty: `$${RATE_PER_MINUTE}/min`,
   };
 }
 

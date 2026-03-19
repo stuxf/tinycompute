@@ -100,17 +100,17 @@ function validationErrorResponse(
   return errorResponse(c, 400, "Validation failed", "VALIDATION_ERROR", validationErrors);
 }
 
-// --- Pricing constants (amounts in USDC base units, 1 unit = $0.000001) ---
+// --- Pricing constants (amounts in human-readable USDC — mppx applies decimals) ---
 const PRICES = {
-  MACHINE_SETUP: "100000",    // $0.10
-  VOLUME_SETUP: "50000",      // $0.05
-  VOLUME_EXTEND: "50000",     // $0.05
-  EXEC_COMMAND: "10000",      // $0.01
-  ALLOCATE_IP: "10000",       // $0.01
-  SESSION_PER_MIN: "5000",    // $0.005/min
-  SESSION_DEPOSIT: "300000",  // $0.30 suggested (1 hour)
-  VERCEL_PROJECT: "100000",   // $0.10
-  DOMAIN_CHECK: "1000",       // $0.001
+  MACHINE_SETUP: "0.1",       // $0.10
+  VOLUME_SETUP: "0.05",       // $0.05
+  VOLUME_EXTEND: "0.05",      // $0.05
+  EXEC_COMMAND: "0.01",       // $0.01
+  ALLOCATE_IP: "0.01",        // $0.01
+  SESSION_PER_MIN: "0.005",   // $0.005/min
+  SESSION_DEPOSIT: "0.30",    // $0.30 suggested (1 hour)
+  VERCEL_PROJECT: "0.1",      // $0.10
+  DOMAIN_CHECK: "0.001",      // $0.001
 } as const;
 
 // --- Helpers ---
