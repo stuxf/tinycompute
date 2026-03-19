@@ -21,11 +21,12 @@ tempo request -t -X POST --json '{"name":"my-server","region":"sjc","config":{"i
 ```
 The response includes `connection.ips` and `connection.ports` for connecting to the machine.
 
-Create a game server (e.g., Minecraft):
+Create a game server (e.g., Minecraft — needs 4GB RAM for Paper world gen):
 ```
-tempo request -t -X POST --json '{"name":"mc-server","region":"sjc","config":{"image":"itzg/minecraft-server:latest","env":{"EULA":"TRUE","TYPE":"PAPER","MEMORY":"2G"},"guest":{"cpu_kind":"shared","cpus":2,"memory_mb":2048},"services":[{"protocol":"tcp","internal_port":25565,"ports":[{"port":25565}]}]}}' https://tinycompute.dev/api/machines
+tempo request -t -X POST --json '{"name":"mc-server","ttl_minutes":60,"region":"sjc","config":{"image":"itzg/minecraft-server:latest","env":{"EULA":"TRUE","TYPE":"PAPER","MEMORY":"3G"},"guest":{"cpu_kind":"shared","cpus":2,"memory_mb":4096},"services":[{"protocol":"tcp","internal_port":25565,"ports":[{"port":25565}]}]}}' https://tinycompute.dev/api/machines
 ```
 Connect via the IP from `connection.ips` on port 25565. No TLS handlers for raw TCP.
+Note: Paper server takes 2-3 minutes to download JARs and generate the world. Check readiness with `mc-health` via exec.
 
 Run a command ($0.01):
 ```
@@ -65,6 +66,18 @@ HTTP/HTTPS (web apps):
 ```
 
 Do NOT add `"handlers": ["tls"]` for raw TCP protocols like Minecraft, PostgreSQL, Redis, etc. Only use handlers for HTTP traffic.
+
+## Resource Sizing Guide
+
+| Workload | CPUs | RAM | Notes |
+|----------|------|-----|-------|
+| Simple script / sleep | 1 | 256MB | Minimal |
+| Web server (nginx, node) | 1 | 512MB | |
+| Database (postgres, redis) | 1-2 | 1-2GB | |
+| Minecraft (Paper) | 2 | 4GB | Paper needs 3G+ for world gen |
+| Heavy build / compile | 2-4 | 4-8GB | |
+
+Max per machine: 8 CPUs, 8GB RAM (shared), or 4GB (performance).
 
 ## Auto-Destroy (TTL)
 
