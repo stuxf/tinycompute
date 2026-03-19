@@ -1,79 +1,129 @@
 # TinyCompute
 
-> A multi-provider compute marketplace via micropayments. No accounts. No API keys. Pay per minute.
+> Multi-provider compute marketplace via micropayments. No accounts. No API keys.
 
-TinyCompute provides programmatic access to three cloud providers — Fly.io, DigitalOcean, and Vercel — through a unified API. Payment is handled via MPP (Micropayment Protocol) using USDC. No signup required; attach a payment to your API call and go.
+Source: https://github.com/stuxf/tinycompute
+
+## Setup
+
+Install the tempo CLI (handles MPP payments automatically):
+```
+mkdir -p "$HOME/.local/bin" && curl -fsSL https://tempo.xyz/install -o /tmp/tempo_install.sh && TEMPO_BIN_DIR="$HOME/.local/bin" bash /tmp/tempo_install.sh
+export PATH="$HOME/.local/bin:$PATH"
+tempo wallet login
+```
+
+## Quick Start
+
+Create a machine ($0.10):
+```
+tempo request -t -X POST --json '{"name":"my-server","region":"sjc","config":{"image":"ubuntu:latest","init":{"cmd":["sleep","infinity"]},"guest":{"cpu_kind":"shared","cpus":1,"memory_mb":512}}}' https://tinycompute.fly.dev/api/machines
+```
+
+Run a command ($0.01):
+```
+tempo request -t -X POST --json '{"command":["ls","-la"]}' https://tinycompute.fly.dev/api/machines/{id}/exec
+```
+
+Stop ($0.001):
+```
+tempo request -t -X POST https://tinycompute.fly.dev/api/machines/{id}/stop
+```
+
+Destroy ($0.001):
+```
+tempo request -t -X DELETE https://tinycompute.fly.dev/api/machines/{id}
+```
+
+## Important
+
+- Use `init.cmd: ["sleep","infinity"]` for base images like ubuntu/debian — without it the container exits immediately.
+- Images with built-in servers (nginx, postgres, node apps) don't need init.cmd.
+- All costs are in USDC, paid automatically via MPP through the tempo CLI.
 
 ## Providers
 
-- **Fly.io**: MicroVMs (machines), persistent volumes, app management, IP allocation
-- **DigitalOcean**: Droplets (VMs) with power management
-- **Vercel**: Projects, deployments, domain management (check availability, purchase, DNS)
-
-## Authentication
-
-All endpoints require an MPP credential in the Authorization header. Your wallet address is derived from the credential and used for resource ownership tracking.
+- **Fly.io**: Firecracker microVMs, 35+ regions, sub-second boot
+- **DigitalOcean**: Droplets (VMs)
+- **Vercel**: Projects, domains
 
 ## Pricing
 
 | Action | Cost |
 |--------|------|
 | Create machine / droplet | $0.10 |
-| Create Vercel project | $0.10 |
-| Start / restart machine or droplet | $0.005/min (session) |
+| Start machine (session) | $0.005/min |
 | Execute command | $0.01 |
 | Create volume | $0.05 |
 | Extend volume | $0.05 |
 | Allocate IP | $0.01 |
+| Create Vercel project | $0.10 |
 | Check domain availability | $0.001 |
-| Buy domain | Dynamic (market price) |
-| Stop, destroy, list, status | Free |
+| Buy domain | Market price |
+| Get, list, stop, destroy, etc. | $0.001 |
 
-## API Endpoints
+## API Reference
+
+Base URL: https://tinycompute.fly.dev
 
 ### Fly.io Machines
-- POST /api/machines — Create machine ($0.10)
-- GET /api/machines — List my machines (free, wallet auth)
-- GET /api/machines/:id — Get machine (free, ownership)
-- POST /api/machines/:id/start — Start machine (session $0.005/min)
-- POST /api/machines/:id/stop — Stop machine (free)
-- POST /api/machines/:id/restart — Restart machine (session $0.005/min)
-- DELETE /api/machines/:id — Destroy machine (free)
-- POST /api/machines/:id/exec — Execute command ($0.01)
-- POST /api/machines/:id/wait — Wait for state (free)
-- GET /api/machines/:id/events — Machine events (free)
-- POST /api/machines/:id/suspend — Suspend machine (free)
-- GET /api/machines/:id/ps — List processes (free)
-- GET /api/machines/:id/billing — Billing info (free)
+
+POST /api/machines — Create machine ($0.10)
+  Body: {"name":"string","region":"sjc","config":{"image":"string","init":{"cmd":["sleep","infinity"]},"guest":{"cpu_kind":"shared","cpus":1,"memory_mb":256},"env":{"KEY":"val"},"services":[{"protocol":"tcp","internal_port":8080,"ports":[{"port":443,"handlers":["tls","http"]}]}]}}
+  Regions: ams, arn, atl, bog, bom, bos, cdg, den, dfw, ewr, eze, fra, gdl, gig, gru, hkg, iad, jnb, lax, lhr, mad, mia, nrt, ord, otp, phx, qro, scl, sea, sin, sjc, syd, waw, yul, yyz
+
+GET /api/machines — List my machines ($0.001)
+GET /api/machines/:id — Get machine ($0.001)
+POST /api/machines/:id/start — Start machine (session $0.005/min)
+POST /api/machines/:id/stop — Stop machine ($0.001)
+POST /api/machines/:id/restart — Restart machine (session $0.005/min)
+DELETE /api/machines/:id — Destroy machine ($0.001)
+POST /api/machines/:id/exec — Execute command ($0.01)
+  Body: {"command":["ls","-la","/"],"timeout":30}
+POST /api/machines/:id/wait — Wait for state ($0.001)
+  Query: ?state=started&timeout=60
+GET /api/machines/:id/events — Machine events ($0.001)
+POST /api/machines/:id/suspend — Suspend machine ($0.001)
+GET /api/machines/:id/ps — List processes ($0.001)
+GET /api/machines/:id/billing — Billing info ($0.001)
 
 ### Fly.io Volumes
-- POST /api/volumes — Create volume ($0.05)
-- GET /api/volumes — List my volumes (free, wallet auth)
-- GET /api/volumes/:id — Get volume (free, ownership)
-- DELETE /api/volumes/:id — Delete volume (free)
-- PUT /api/volumes/:id/extend — Extend volume ($0.05)
+
+POST /api/volumes — Create volume ($0.05)
+  Body: {"name":"my_data","region":"sjc","size_gb":1}
+GET /api/volumes — List volumes ($0.001)
+GET /api/volumes/:id — Get volume ($0.001)
+DELETE /api/volumes/:id — Delete volume ($0.001)
+PUT /api/volumes/:id/extend — Extend volume ($0.05)
+  Body: {"size_gb":5}
 
 ### Fly.io Apps
-- POST /api/apps — Create app (free, wallet auth)
-- DELETE /api/apps/:name — Delete app (free, wallet auth)
-- GET /api/apps/:name/ips — List IPs (free, no auth)
-- POST /api/apps/:name/ips — Allocate IP ($0.01)
+
+POST /api/apps — Create app ($0.001)
+DELETE /api/apps/:name — Delete app ($0.001)
+GET /api/apps/:name/ips — List IPs (free)
+POST /api/apps/:name/ips — Allocate IP ($0.01)
 
 ### DigitalOcean Droplets
-- POST /api/do/droplets — Create droplet ($0.10)
-- GET /api/do/droplets — List my droplets (free, wallet auth)
-- GET /api/do/droplets/:id — Get droplet (free, ownership)
-- POST /api/do/droplets/:id/start — Power on droplet (session $0.005/min)
-- POST /api/do/droplets/:id/stop — Power off droplet (free)
-- DELETE /api/do/droplets/:id — Destroy droplet (free)
 
-### Vercel Projects
-- POST /api/vercel/projects — Create project ($0.10)
-- GET /api/vercel/projects — List projects (free, wallet auth)
+POST /api/do/droplets — Create droplet ($0.10)
+  Body: {"name":"my-droplet","region":"nyc1","size":"s-1vcpu-1gb","image":"ubuntu-24-04-x64"}
+  Sizes: s-1vcpu-512mb-10gb, s-1vcpu-1gb, s-1vcpu-2gb, s-2vcpu-2gb, s-2vcpu-4gb, s-4vcpu-8gb
+  Regions: nyc1, nyc3, sfo3, ams3, sgp1, lon1, fra1, tor1, blr1, syd1
+GET /api/do/droplets — List droplets ($0.001)
+GET /api/do/droplets/:id — Get droplet ($0.001)
+POST /api/do/droplets/:id/start — Power on (session $0.005/min)
+POST /api/do/droplets/:id/stop — Power off ($0.001)
+DELETE /api/do/droplets/:id — Destroy ($0.001)
 
-### Vercel Domains
-- POST /api/vercel/domains/check — Check domain availability ($0.001)
-- POST /api/vercel/domains/buy — Buy a domain (dynamic price)
+### Vercel
 
-## Health
-- GET /health — Health check (free, no auth)
+POST /api/vercel/projects — Create project ($0.10)
+GET /api/vercel/projects — List projects ($0.001)
+POST /api/vercel/domains/check — Check domain availability ($0.001)
+POST /api/vercel/domains/buy — Buy domain (market price)
+
+### System
+
+GET /health — Health check (free, no auth)
+GET /llms.txt — This file (free, no auth)
