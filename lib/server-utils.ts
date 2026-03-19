@@ -97,12 +97,12 @@ export const upstashClient = new UpstashClient({ email: UPSTASH_EMAIL ?? "", api
 
 // --- Pricing constants ---
 export const PRICES = {
-  MACHINE_SETUP: "0.1",
+  MACHINE_SETUP: "0.1",       // base setup fee — compute pricing added dynamically
   VOLUME_SETUP: "0.05",
   VOLUME_EXTEND: "0.05",
   EXEC_COMMAND: "0.01",
   ALLOCATE_IP: "0.01",
-  SESSION_PER_MIN: "0.005",
+  SESSION_PER_MIN: "0.005",   // base rate — actual rate scales with machine size
   SESSION_DEPOSIT: "0.30",
   VERCEL_PROJECT: "0.1",
   DOMAIN_CHECK: "0.001",
@@ -110,6 +110,76 @@ export const PRICES = {
   KV_DATABASE_CREATE: "0.05",
   KV_OP: "0.001",
 } as const;
+
+/**
+ * Calculate per-minute rate based on machine config.
+ * Base: $0.005/min for shared-1x/256MB
+ * +$0.003/min per additional CPU
+ * +$0.001/min per additional 256MB RAM
+ * Performance CPUs: 2x the CPU rate
+ */
+export function computeRate(config?: { guest?: { cpu_kind?: string; cpus?: number; memory_mb?: number } }): {
+  ratePerMin: string;
+  suggestedDeposit: string;
+  ratePretty: string;
+} {
+  const guest = config?.guest;
+  const cpus = guest?.cpus ?? 1;
+  const memMb = guest?.memory_mb ?? 256;
+  const isPerf = guest?.cpu_kind === "performance";
+
+  const cpuRate = isPerf ? 0.006 : 0.003; // per CPU per minute
+  const memRate = 0.001; // per 256MB per minute
+
+  const rate = (cpus * cpuRate) + (Math.ceil(memMb / 256) * memRate);
+  const rateRounded = Math.round(rate * 10000) / 10000; // 4 decimal places
+
+  return {
+    ratePerMin: String(rateRounded),
+    suggestedDeposit: String(Math.round(rateRounded * 60 * 100) / 100), // 1 hour
+    ratePretty: `$${rateRounded}/min (~$${(rateRounded * 60).toFixed(2)}/hr)`,
+  };
+}
+
+/**
+ * Calculate setup fee based on machine size.
+ * Base: $0.10 for shared-1x/256MB
+ * Scales with size: $0.10 + $0.02 per extra CPU + $0.01 per extra 256MB
+ */
+export function computeSetupFee(config?: { guest?: { cpus?: number; memory_mb?: number } }): string {
+  const cpus = config?.guest?.cpus ?? 1;
+  const memMb = config?.guest?.memory_mb ?? 256;
+
+  const fee = 0.10 + ((cpus - 1) * 0.02) + ((Math.ceil(memMb / 256) - 1) * 0.01);
+  return String(Math.round(fee * 100) / 100);
+}
+
+/**
+ * Calculate DO droplet pricing based on size slug.
+ */
+export function computeDropletRate(size?: string): {
+  ratePerMin: string;
+  suggestedDeposit: string;
+  ratePretty: string;
+  setupFee: string;
+} {
+  // Map DO sizes to approximate costs
+  const sizeRates: Record<string, number> = {
+    "s-1vcpu-512mb-10gb": 0.005,
+    "s-1vcpu-1gb": 0.006,
+    "s-1vcpu-2gb": 0.008,
+    "s-2vcpu-2gb": 0.010,
+    "s-2vcpu-4gb": 0.014,
+    "s-4vcpu-8gb": 0.024,
+  };
+  const rate = sizeRates[size ?? ""] ?? 0.005;
+  return {
+    ratePerMin: String(rate),
+    suggestedDeposit: String(Math.round(rate * 60 * 100) / 100),
+    ratePretty: `$${rate}/min (~$${(rate * 60).toFixed(2)}/hr)`,
+    setupFee: String(Math.round((0.10 + rate * 10) * 100) / 100), // setup scales too
+  };
+}
 
 // --- Response helpers ---
 
