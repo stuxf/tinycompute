@@ -21,12 +21,18 @@ tempo request -t -X POST --json '{"name":"my-server","region":"sjc","config":{"i
 ```
 The response includes `connection.ips` and `connection.ports` for connecting to the machine.
 
-Create a game server (e.g., Minecraft — needs 4GB RAM for Paper world gen):
+Create a Minecraft server (one command — waits until ready, returns connection address):
+```
+tempo request -t -X POST --json '{}' https://tinycompute.dev/api/minecraft
+```
+Options: `{"name":"my-server","region":"sjc","ttl_minutes":60,"type":"PAPER","max_players":20,"motd":"My Server"}`
+Response includes `connection.address` (e.g. `168.220.82.241:25565`) — ready to connect.
+Takes 3-5 minutes (downloads Paper + generates world). The endpoint waits and returns when ready.
+
+For manual setup with custom config, use the machines API:
 ```
 tempo request -t -X POST --json '{"name":"mc-server","ttl_minutes":60,"region":"sjc","config":{"image":"itzg/minecraft-server:latest","env":{"EULA":"TRUE","TYPE":"PAPER","MEMORY":"3G"},"guest":{"cpu_kind":"shared","cpus":2,"memory_mb":4096},"services":[{"protocol":"tcp","internal_port":25565,"ports":[{"port":25565}]}]}}' https://tinycompute.dev/api/machines
 ```
-Connect via the IP from `connection.ips` on port 25565. No TLS handlers for raw TCP.
-Note: Paper server takes 2-3 minutes to download JARs and generate the world. Check readiness with `mc-health` via exec.
 
 Run a command ($0.01):
 ```
