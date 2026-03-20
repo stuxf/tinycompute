@@ -146,9 +146,11 @@ Base URL: https://tinycompute.dev
 
 ### Presets
 
-POST /api/minecraft — One-click Minecraft server ($0.15)
-  Body (all optional): {"name":"string","region":"sjc","ttl_minutes":60,"type":"PAPER","max_players":20,"motd":"string"}
+POST /api/minecraft — One-click Minecraft server ($0.10 setup + $0.005/min × ttl)
+  Body (all optional): {"name":"string","region":"sjc","ttl_minutes":10,"type":"PAPER","max_players":20,"motd":"string"}
+  Default ttl: 60 min. Price example: 10 min = $0.15, 30 min = $0.25, 60 min = $0.40.
   Waits for server to boot (~3-5 min). Response includes connection.address ready to use.
+  If connection.address is null, get it from: GET /api/apps/mpp-compute/ips (use the non-shared IP on port 25565).
 
 ### Fly.io Machines
 
