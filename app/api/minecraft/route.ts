@@ -54,6 +54,9 @@ export const POST = mppx.charge({ amount: MINECRAFT_PRICE, description: "Minecra
           VERSION: version,
           ENABLE_COMMAND_BLOCK: "true",
           SPAWN_PROTECTION: "0",
+          VIEW_DISTANCE: "8",
+          SIMULATION_DISTANCE: "6",
+          ONLINE_MODE: "false",
         },
         guest: {
           cpu_kind: "shared",
@@ -81,9 +84,9 @@ export const POST = mppx.charge({ amount: MINECRAFT_PRICE, description: "Minecra
     try {
       const rawIps = await fly.apps.listIps(process.env.FLY_APP_NAME!);
       const ipList = Array.isArray(rawIps) ? rawIps : [];
-      const dedicated = ipList.find((ip: any) => ip.type === "v4");
-      const shared = ipList.find((ip: any) => ip.type === "shared_v4");
-      connectIp = (dedicated ?? shared)?.address ?? null;
+      const dedicated = ipList.find((ip: any) => !ip.shared && ip.ip);
+      const shared = ipList.find((ip: any) => ip.shared && ip.ip);
+      connectIp = (dedicated ?? shared)?.ip ?? null;
     } catch { /* ignore */ }
 
     // Wait for the machine to start

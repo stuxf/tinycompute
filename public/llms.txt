@@ -144,6 +144,12 @@ Compute pricing scales with machine size. Prices shown in the 402 challenge.
 
 Base URL: https://tinycompute.dev
 
+### Presets
+
+POST /api/minecraft — One-click Minecraft server ($0.15)
+  Body (all optional): {"name":"string","region":"sjc","ttl_minutes":60,"type":"PAPER","max_players":20,"motd":"string"}
+  Waits for server to boot (~3-5 min). Response includes connection.address ready to use.
+
 ### Fly.io Machines
 
 POST /api/machines — Create machine ($0.10)
