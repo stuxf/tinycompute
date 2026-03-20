@@ -10,14 +10,14 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 // Session-based: $0.005/min for a 4cpu/4GB machine
-// Suggested deposit $0.50 (~100 min / 1.5 hours)
+// Suggested deposit $0.50 (~100 min)
 const RATE = "0.005";
 const DEPOSIT = "0.50";
 
 /**
  * POST /api/minecraft — One-click Minecraft server
- * Session-based: $0.005/min. Deposit $0.50 (~100 min).
- * Auto-stops when deposit is consumed or TTL expires.
+ * Session: $0.005/min. Deposit $0.50 (~100 min).
+ * Auto-stops when deposit consumed or TTL expires.
  */
 export const POST = mppx.session({
   amount: RATE,
