@@ -4,25 +4,32 @@ import {
   withErrorHandling, jsonResponse,
 } from "@/lib/server-utils";
 import { setMachineOwner } from "@/lib/ownership";
+import { startSession } from "@/lib/billing";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
-// Fixed price: covers setup + up to 1 hour of 4cpu/4GB
-// Fly cost: ~$0.03/hr. We charge $0.25 flat.
-const PRICE = "0.25";
+// Session-based: $0.005/min for a 4cpu/4GB machine
+// Suggested deposit $0.50 (~100 min / 1.5 hours)
+const RATE = "0.005";
+const DEPOSIT = "0.50";
 
 /**
- * POST /api/minecraft — One-click Minecraft server ($0.25)
- * Includes up to 1 hour of runtime. Auto-stops via TTL.
+ * POST /api/minecraft — One-click Minecraft server
+ * Session-based: $0.005/min. Deposit $0.50 (~100 min).
+ * Auto-stops when deposit is consumed or TTL expires.
  */
-export const POST = mppx.charge({ amount: PRICE, description: "Minecraft server (4cpu/4GB, up to 1hr)" })(
+export const POST = mppx.session({
+  amount: RATE,
+  unitType: "minute",
+  suggestedDeposit: DEPOSIT,
+})(
   withErrorHandling(async (req) => {
     const body = await req.json().catch(() => ({}));
 
     const name = body.name ?? `mc-${Date.now().toString(36)}`;
     const region = body.region ?? "sjc";
-    const ttlMinutes = Math.min(body.ttl_minutes ?? 60, 60); // max 1hr per charge
+    const ttlMinutes = Math.min(body.ttl_minutes ?? 60, 1440);
     const serverType = body.type ?? "PAPER";
     const memory = body.memory ?? "3G";
     const maxPlayers = body.max_players ?? 20;
@@ -60,8 +67,14 @@ export const POST = mppx.charge({ amount: PRICE, description: "Minecraft server 
       },
     });
 
+    // Track ownership + billing session
     const wallet = getPayerWallet(req);
-    if (wallet) await setMachineOwner(machine.id, wallet);
+    if (wallet) {
+      await setMachineOwner(machine.id, wallet);
+      const sessionId = req.headers.get("x-mpp-session-id") ?? `mc-session-${Date.now()}`;
+      const deposit = Number(req.headers.get("x-mpp-deposit") || DEPOSIT);
+      await startSession(machine.id, wallet, sessionId, deposit);
+    }
 
     // Get connection IP
     let connectIp: string | null = null;
@@ -106,9 +119,14 @@ export const POST = mppx.charge({ amount: PRICE, description: "Minecraft server 
         address: connectIp ? `${connectIp}:25565` : null,
         ip: connectIp,
         port: 25565,
-        fallback: "If address is null, run: tempo request -t https://tinycompute.dev/api/apps/mpp-compute/ips — use the non-shared IP on port 25565",
+        fallback: "If null: tempo request -t https://tinycompute.dev/api/apps/mpp-compute/ips",
       },
-      pricing: { total: `$${PRICE}`, includes: `up to ${ttlMinutes} minutes` },
+      pricing: {
+        type: "session",
+        rate: `$${RATE}/min`,
+        deposit: `$${DEPOSIT}`,
+        billingInfo: `tempo request -t https://tinycompute.dev/api/machines/${machine.id}/billing`,
+      },
       server: { type: serverType, version, maxPlayers, motd, memory },
       ttl: { minutes: ttlMinutes, expiresAt: new Date(Date.now() + ttlMinutes * 60 * 1000).toISOString() },
       management: {
