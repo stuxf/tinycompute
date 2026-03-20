@@ -4,26 +4,15 @@ import {
   withErrorHandling, jsonResponse,
 } from "@/lib/server-utils";
 import { setMachineOwner } from "@/lib/ownership";
-import { startSession } from "@/lib/billing";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
-// Session-based: $0.005/min for a 4cpu/4GB machine
-// Suggested deposit $0.50 (~100 min)
-const RATE = "0.005";
-const DEPOSIT = "0.50";
-
 /**
  * POST /api/minecraft — One-click Minecraft server
- * Session: $0.005/min. Deposit $0.50 (~100 min).
- * Auto-stops when deposit consumed or TTL expires.
+ * $0.25 flat — covers setup + up to 1hr runtime. Auto-stops via TTL.
  */
-export const POST = mppx.session({
-  amount: RATE,
-  unitType: "minute",
-  suggestedDeposit: DEPOSIT,
-})(
+export const POST = mppx.charge({ amount: "0.25", description: "Minecraft server (4cpu/4GB, up to 1hr)" })(
   withErrorHandling(async (req) => {
     const body = await req.json().catch(() => ({}));
 
@@ -69,12 +58,7 @@ export const POST = mppx.session({
 
     // Track ownership + billing session
     const wallet = getPayerWallet(req);
-    if (wallet) {
-      await setMachineOwner(machine.id, wallet);
-      const sessionId = req.headers.get("x-mpp-session-id") ?? `mc-session-${Date.now()}`;
-      const deposit = Number(req.headers.get("x-mpp-deposit") || DEPOSIT);
-      await startSession(machine.id, wallet, sessionId, deposit);
-    }
+    if (wallet) await setMachineOwner(machine.id, wallet);
 
     // Get connection IP
     let connectIp: string | null = null;
@@ -122,10 +106,8 @@ export const POST = mppx.session({
         fallback: "If null: tempo request -t https://tinycompute.dev/api/apps/mpp-compute/ips",
       },
       pricing: {
-        type: "session",
-        rate: `$${RATE}/min`,
-        deposit: `$${DEPOSIT}`,
-        billingInfo: `tempo request -t https://tinycompute.dev/api/machines/${machine.id}/billing`,
+        total: "$0.25",
+        includes: `up to ${ttlMinutes} minutes`,
       },
       server: { type: serverType, version, maxPlayers, motd, memory },
       ttl: { minutes: ttlMinutes, expiresAt: new Date(Date.now() + ttlMinutes * 60 * 1000).toISOString() },
