@@ -42,9 +42,19 @@ export const POST = mppx.charge({ amount: PRICES.MACHINE_SETUP, description: "Ma
 
     // Compute runtime pricing for this machine size
     const rate = computeRate(body.config);
-    const ips = await fly.apps.listIps(process.env.FLY_APP_NAME!).catch(() => []);
+    // Get public IPs for connection info
+    let ipList: { ip: string; shared: boolean }[] = [];
+    try {
+      const rawIps = await fly.apps.listIps(process.env.FLY_APP_NAME!);
+      // Handle both array and wrapped object responses from Fly
+      ipList = Array.isArray(rawIps) ? rawIps : (rawIps as any)?.ip_assignments ?? [];
+    } catch { /* ignore */ }
+
     const services = body.config?.services ?? [];
     const ports = services.flatMap((s: any) => s.ports?.map((p: any) => p.port) ?? []);
+    const dedicatedIp = ipList.find((ip: any) => !ip.shared)?.ip;
+    const sharedIp = ipList.find((ip: any) => ip.shared)?.ip;
+    const connectIp = dedicatedIp ?? sharedIp;
 
     return jsonResponse({
       ...machine,
@@ -53,11 +63,15 @@ export const POST = mppx.charge({ amount: PRICES.MACHINE_SETUP, description: "Ma
         runtimeRate: rate.ratePretty,
       },
       connection: {
-        ips: Array.isArray(ips) ? ips : [],
+        ip: connectIp ?? null,
+        allIps: ipList,
         ports,
-        hint: ports.length > 0
-          ? `Connect to <ip>:${ports[0]}`
-          : "No services/ports configured — use exec to interact",
+        address: connectIp && ports.length > 0 ? `${connectIp}:${ports[0]}` : null,
+        hint: connectIp && ports.length > 0
+          ? `Connect to ${connectIp}:${ports[0]}`
+          : connectIp
+          ? `IP: ${connectIp} — no ports exposed`
+          : "No public IP — use exec to interact",
       },
     }, 201);
   }),
