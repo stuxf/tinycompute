@@ -22,11 +22,12 @@ export interface CreateAppRequest {
 }
 
 export interface IpAssignment {
-  id: string;
-  address: string;
-  type: "v4" | "v6" | "shared_v4" | "private_v6";
-  region: string;
-  created_at: string;
+  ip: string;
+  type: string;
+  region: string | null;
+  created_at: string | null;
+  shared: boolean;
+  service_name: string | null;
 }
 
 export class FlyAppsClient {

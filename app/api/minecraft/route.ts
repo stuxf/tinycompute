@@ -8,7 +8,7 @@ import { setMachineOwner } from "@/lib/ownership";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300; // 5 min — wait for server to boot
 
-const MINECRAFT_PRICE = "0.15"; // slightly more than base setup to cover the larger machine
+const MINECRAFT_PRICE = "0.20"; // 4cpu/4GB machine + setup
 
 /**
  * POST /api/minecraft — One-click Minecraft server
@@ -54,13 +54,13 @@ export const POST = mppx.charge({ amount: MINECRAFT_PRICE, description: "Minecra
           VERSION: version,
           ENABLE_COMMAND_BLOCK: "true",
           SPAWN_PROTECTION: "0",
-          VIEW_DISTANCE: "8",
-          SIMULATION_DISTANCE: "6",
+          VIEW_DISTANCE: "6",
+          SIMULATION_DISTANCE: "4",
           ONLINE_MODE: "false",
         },
         guest: {
           cpu_kind: "shared",
-          cpus: 2,
+          cpus: 4,
           memory_mb: 4096,
         },
         services: [{
